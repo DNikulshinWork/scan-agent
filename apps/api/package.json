@@ -1,0 +1,26 @@
+{
+  "name": "@scan-agent/api",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@scan-agent/database": "workspace:*",
+    "@scan-agent/events": "workspace:*",
+    "@scan-agent/scanner": "workspace:*",
+    "@scan-agent/shared-types": "workspace:*",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "@scan-agent/events",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@scan-agent/shared-types": "workspace:*",
+    "eventemitter2": "^6.4.9"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

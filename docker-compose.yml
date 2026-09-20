@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: scan-agent-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: scanagent
+      POSTGRES_PASSWORD: scanagent_local_password
+      POSTGRES_DB: scanagent_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scanagent -d scanagent_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: scan-agent-api
+    restart: unless-stopped
+    ports:
+      - "10000:10000"
+    environment:
+      PORT: 10000
+      NODE_ENV: development
+      DATABASE_URL: "postgresql://scanagent:scanagent_local_password@postgres:5432/scanagent_db?schema=public"
+      CORS_ORIGIN: "http://localhost:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    container_name: scan-agent-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

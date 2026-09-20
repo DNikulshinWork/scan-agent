@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  api:
+    image: ghcr.io/dnikulshinwork/scan-agent/api:latest
+    container_name: scan-agent-api
+    restart: always
+    ports:
+      - "10000:10000"
+    environment:
+      NODE_ENV: production
+      PORT: 10000
+      DATABASE_URL: "postgresql://username:password@ep-pooler.eu-central-1.aws.neon.tech/scanagent_db?sslmode=require"
+      CORS_ORIGIN: "https://dnikulshinwork.github.io,http://localhost:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:10000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
