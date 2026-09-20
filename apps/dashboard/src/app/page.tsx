@@ -9,6 +9,8 @@ import { StatsView } from '../components/StatsView';
 import { ProfileView } from '../components/ProfileView';
 import { ArchitecturePlanView } from '../components/ArchitecturePlanView';
 import { ApiSettingsModal } from '../components/ApiSettingsModal';
+import { PWAInstallPrompt } from '../components/PWAInstallPrompt';
+import { MobileBottomNav } from '../components/MobileBottomNav';
 import { initialVacancies, initialProfile, defaultScoringRules } from '../data/mockData';
 import { fetchLiveHhVacancies } from '../services/hhService';
 import {
@@ -261,7 +263,10 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 sm:pb-8">
+        {/* PWA Install Banner */}
+        <PWAInstallPrompt />
+
         {activeTab === 'vacancies' && (
           <div className="space-y-6">
             <FilterBar
@@ -398,6 +403,13 @@ export default function DashboardPage() {
         onClose={() => setIsSettingsOpen(false)}
         apiUrl={apiUrl}
         onSaveApiUrl={handleSaveApiUrl}
+      />
+
+      {/* Mobile Bottom Navigation Bar */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        vacanciesCount={counts.all}
       />
     </div>
   );

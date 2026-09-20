@@ -4,6 +4,10 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'ScanAgent HH Dashboard',
   description: 'Мониторинг вакансий HH.ru на фильтрах резюме (Next.js 16, Fastify, Neon, GitHub Pages)',
+  icons: {
+    icon: '/scan-agent/icon.svg',
+    apple: '/scan-agent/apple-touch-icon.png',
+  },
 };
 
 export default function RootLayout({

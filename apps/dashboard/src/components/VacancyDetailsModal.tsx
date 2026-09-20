@@ -159,12 +159,12 @@ export const VacancyDetailsModal: React.FC<VacancyDetailsModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-gray-800 bg-gray-950/80 flex items-center justify-between gap-3">
+        <div className="p-4 border-t border-gray-800 bg-gray-950/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <a
             href={vacancy.link}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs font-medium text-rose-400 hover:text-rose-300 flex items-center gap-1.5"
+            className="text-xs font-medium text-rose-400 hover:text-rose-300 flex items-center justify-center sm:justify-start gap-1.5 py-1"
           >
             <span>Перейти к вакансии на HH.ru</span>
             <ExternalLink className="w-3.5 h-3.5" />
@@ -173,7 +173,7 @@ export const VacancyDetailsModal: React.FC<VacancyDetailsModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={handleCopy}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-colors shadow-lg shadow-rose-900/30"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-colors shadow-lg shadow-rose-900/30 min-h-[40px]"
             >
               {copied ? (
                 <>

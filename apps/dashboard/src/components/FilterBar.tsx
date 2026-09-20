@@ -40,7 +40,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         </div>
 
         {/* Status Tabs */}
-        <div className="flex items-center gap-1 bg-gray-950/90 p-1 rounded-xl border border-gray-800 self-start md:self-auto overflow-x-auto max-w-full">
+        <div className="flex items-center gap-1 bg-gray-950/90 p-1 rounded-xl border border-gray-800 self-stretch md:self-auto overflow-x-auto no-scrollbar">
           {(
             [
               { key: 'all', label: 'Все', count: counts.all },
@@ -54,7 +54,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               <button
                 key={key}
                 onClick={() => setFilters((prev) => ({ ...prev, status: key as 'all' | VacancyStatus }))}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                className={`flex-1 sm:flex-initial px-3 py-2 sm:py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all flex items-center justify-center gap-1.5 min-h-[38px] ${
                   isActive
                     ? 'bg-rose-600 text-white shadow-sm font-semibold'
                     : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
