@@ -1,12 +1,27 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
+
+export const viewport: Viewport = {
+  themeColor: '#030712',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+};
+
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
 export const metadata: Metadata = {
   title: 'ScanAgent HH Dashboard',
   description: 'Мониторинг вакансий HH.ru на фильтрах резюме (Next.js 16, Fastify, Neon, GitHub Pages)',
+  manifest: `${basePath}/manifest.json`,
   icons: {
-    icon: '/scan-agent/icon.svg',
-    apple: '/scan-agent/apple-touch-icon.png',
+    icon: `${basePath}/icon.svg`,
+    apple: `${basePath}/apple-touch-icon.png`,
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'ScanAgent',
   },
 };
 
@@ -23,3 +38,4 @@ export default function RootLayout({
     </html>
   );
 }
+

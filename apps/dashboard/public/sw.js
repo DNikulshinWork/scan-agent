@@ -1,19 +1,21 @@
 // Service Worker for ScanAgent PWA with Push Notifications & Offline Cache
-const CACHE_NAME = 'scanagent-v1';
+const CACHE_NAME = 'scanagent-v2';
+const basePath = self.location.pathname.replace(/\/sw\.js$/, '') || '';
+
 const ASSETS_TO_CACHE = [
-  './',
-  './manifest.json',
-  './pwa-192x192.png',
-  './pwa-512x512.png',
-  './apple-touch-icon.png',
-  './icon.svg'
+  basePath + '/',
+  basePath + '/manifest.json',
+  basePath + '/pwa-192x192.png',
+  basePath + '/pwa-512x512.png',
+  basePath + '/apple-touch-icon.png',
+  basePath + '/icon.svg'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
-        console.warn('Pre-cache error (ignorable during dev):', err);
+        console.warn('Pre-cache error:', err);
       });
     })
   );
@@ -52,7 +54,7 @@ self.addEventListener('fetch', (event) => {
       }
       return fetch(event.request).catch(() => {
         if (event.request.headers.get('accept')?.includes('text/html')) {
-          return caches.match('./');
+          return caches.match(basePath + '/') || caches.match('./');
         }
       });
     })
@@ -64,9 +66,9 @@ self.addEventListener('push', (event) => {
   let data = {
     title: 'ScanAgent HH: Новая вакансия!',
     body: 'Найдена вакансия с высоким скорингом соответствия вашему стеку.',
-    icon: './pwa-192x192.png',
-    badge: './pwa-192x192.png',
-    data: { url: './' }
+    icon: basePath + '/pwa-192x192.png',
+    badge: basePath + '/pwa-192x192.png',
+    data: { url: basePath + '/' }
   };
 
   if (event.data) {
@@ -80,10 +82,10 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: data.body,
-    icon: data.icon || './pwa-192x192.png',
-    badge: data.badge || './pwa-192x192.png',
+    icon: data.icon || (basePath + '/pwa-192x192.png'),
+    badge: data.badge || (basePath + '/pwa-192x192.png'),
     vibrate: [100, 50, 100],
-    data: data.data || { url: './' },
+    data: data.data || { url: basePath + '/' },
     actions: [
       { action: 'open', title: '👀 Посмотреть' },
       { action: 'close', title: 'Закрыть' }
@@ -97,7 +99,7 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   if (event.action === 'close') return;
 
-  const targetUrl = event.notification.data?.url || './';
+  const targetUrl = event.notification.data?.url || (basePath + '/');
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
@@ -111,3 +113,4 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
+

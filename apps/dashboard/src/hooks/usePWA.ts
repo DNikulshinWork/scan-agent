@@ -27,14 +27,20 @@ export function usePWA() {
     const isIOSDevice = /iphone|ipad|ipod/.test(ua);
     setIsIOS(isIOSDevice);
 
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+    const swUrl = `${basePath}/sw.js`;
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker
-        .register('./sw.js')
+        .register(swUrl, { scope: `${basePath}/` || '/' })
         .then((reg) => {
           console.log('PWA ServiceWorker registered with scope:', reg.scope);
         })
         .catch((err) => {
-          console.log('SW registration note:', err);
+          console.warn('SW registration with base path failed, trying relative:', err);
+          navigator.serviceWorker.register('./sw.js').catch((e) => {
+            console.error('PWA SW registration failed:', e);
+          });
         });
     }
 
@@ -65,27 +71,39 @@ export function usePWA() {
 
   const installApp = async () => {
     if (!deferredPrompt) return false;
-    await deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setIsInstalled(true);
-      setDeferredPrompt(null);
-      return true;
+    try {
+      await deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setIsInstalled(true);
+        setDeferredPrompt(null);
+        return true;
+      }
+    } catch (err) {
+      console.warn('PWA prompt execution error:', err);
     }
     return false;
   };
 
-  const requestNotificationPermission = async () => {
-    if (!('Notification' in window)) {
+  const requestNotificationPermission = async (): Promise<NotificationPermission> => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
       return 'denied';
     }
 
     try {
-      const permission = await Notification.requestPermission();
+      let permission: NotificationPermission;
+      try {
+        permission = await Notification.requestPermission();
+      } catch {
+        permission = await new Promise<NotificationPermission>((resolve) => {
+          Notification.requestPermission((status) => resolve(status));
+        });
+      }
+
       setNotificationPermission(permission);
 
       if (permission === 'granted') {
-        sendLocalPushNotification(
+        await sendLocalPushNotification(
           '🔔 ScanAgent: Push-уведомления активны!',
           'Вы будете моментально получать оповещения о вакансиях с высоким скорингом соответствия.'
         );
@@ -97,23 +115,40 @@ export function usePWA() {
     }
   };
 
-  const sendLocalPushNotification = (title: string, body: string, url?: string) => {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const sendLocalPushNotification = async (title: string, body: string, url?: string) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
 
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-      navigator.serviceWorker.ready.then((registration) => {
-        registration.showNotification(title, {
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+    const iconPath = `${basePath}/pwa-192x192.png`;
+    const targetUrl = url || `${basePath}/`;
+
+    try {
+      // Primary standard method for Android & Desktop PWA: ServiceWorkerRegistration.showNotification
+      if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        if (registration && typeof registration.showNotification === 'function') {
+          await registration.showNotification(title, {
+            body,
+            icon: iconPath,
+            badge: iconPath,
+            data: { url: targetUrl },
+          });
+          return;
+        }
+      }
+
+      // Fallback for desktop Safari/Chrome if SW is not ready yet
+      try {
+        new Notification(title, {
           body,
-          icon: './pwa-192x192.png',
-          badge: './pwa-192x192.png',
-          data: { url: url || './' },
+          icon: iconPath,
         });
-      });
-    } else {
-      new Notification(title, {
-        body,
-        icon: './pwa-192x192.png',
-      });
+      } catch (e) {
+        console.warn('Desktop Notification fallback note:', e);
+      }
+    } catch (err) {
+      console.error('Error sending local push notification:', err);
     }
   };
 
