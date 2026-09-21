@@ -1,0 +1,32 @@
+name: Trigger Render Deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'packages/**'
+      - 'Dockerfile'
+      - '.github/workflows/render-deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy-render:
+    name: Call Render Deploy Hook
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Deploy Hook
+        run: |
+          DEPLOY_HOOK="${{ secrets.RENDER_DEPLOY_HOOK_URL || 'https://api.render.com/deploy/srv-danv04oae00c73a5vv10?key=lKtY2NRDKUc' }}"
+          echo "🚀 Calling Render Deploy Hook for srv-danv04oae00c73a5vv10..."
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$DEPLOY_HOOK")
+          HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d':' -f2)
+          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
+
+          echo "Response: $BODY"
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "✅ Render deployment successfully triggered! (HTTP $HTTP_STATUS)"
+          else
+            echo "❌ Render deploy hook failed with status $HTTP_STATUS: $BODY"
+            exit 1
+          fi

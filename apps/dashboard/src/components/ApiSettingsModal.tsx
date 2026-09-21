@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Server, CheckCircle2, AlertCircle, RefreshCw, X, Database, Globe, Trash2, Cpu, HardDrive } from 'lucide-react';
+import { Settings, Server, CheckCircle2, AlertCircle, RefreshCw, X, Database, Globe, Trash2, Cpu, HardDrive, Rocket } from 'lucide-react';
 import { getCacheMeta, clearCachedVacancies } from '../services/indexedDbStorage';
 
 interface ApiSettingsModalProps {
@@ -21,6 +21,38 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
   const [testingStatus, setTestingStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [backendMeta, setBackendMeta] = useState<any>(null);
+
+  // Render Deploy Hook State
+  const [deployHookUrl, setDeployHookUrl] = useState(
+    'https://api.render.com/deploy/srv-danv04oae00c73a5vv10?key=lKtY2NRDKUc'
+  );
+  const [deployStatus, setDeployStatus] = useState<'idle' | 'deploying' | 'success' | 'error'>('idle');
+  const [deployFeedback, setDeployFeedback] = useState<string | null>(null);
+
+  const handleTriggerDeploy = async () => {
+    const target = deployHookUrl.trim();
+    if (!target) return;
+    setDeployStatus('deploying');
+    setDeployFeedback('Отправка запроса на Render Deploy Hook...');
+    try {
+      const res = await fetch(target, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDeployStatus('success');
+        setDeployFeedback(
+          `Деплой успешно запущен на Render! ${data.deploy?.id ? `ID: ${data.deploy.id}` : ''}`
+        );
+      } else {
+        setDeployStatus('error');
+        setDeployFeedback(`Render вернул HTTP ${res.status}`);
+      }
+    } catch {
+      setDeployStatus('error');
+      setDeployFeedback('Ошибка соединения с api.render.com (проверьте блокировщики или CORS)');
+    }
+  };
 
   // IndexedDB Cache State
   const [cacheMeta, setCacheMeta] = useState<{ lastSyncAt: string | null; totalCount: number }>({
@@ -250,6 +282,63 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
               <p className="text-[11px] text-emerald-400 text-center animate-fade-in">
                 {cacheStatusMessage}
               </p>
+            )}
+          </div>
+
+          {/* Section 3: Render Deploy Hook */}
+          <div className="space-y-3 p-3.5 bg-gray-950/60 rounded-xl border border-gray-800">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                <Rocket className="w-3.5 h-3.5 text-amber-400" />
+                <span>Render Deploy Hook (srv-danv04oae00c73a5vv10)</span>
+              </label>
+              <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                CI/CD Auto-Deploy
+              </span>
+            </div>
+
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              Настроен вебхук мгновенного обновления бэкенда на <strong>Render.com</strong>. При каждом пуше в ветку <code className="text-amber-300">main</code> GitHub Actions автоматически вызывает этот хук после сборки Docker-образа. Также деплой можно запустить вручную прямо сейчас:
+            </p>
+
+            <div className="flex gap-2">
+              <input
+                type="url"
+                value={deployHookUrl}
+                onChange={(e) => setDeployHookUrl(e.target.value)}
+                placeholder="https://api.render.com/deploy/srv-..."
+                className="flex-1 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-[11px] text-gray-200 placeholder-gray-600 focus:outline-none focus:border-amber-500 font-mono"
+              />
+              <button
+                type="button"
+                onClick={handleTriggerDeploy}
+                disabled={deployStatus === 'deploying'}
+                className="px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-medium rounded-xl border border-amber-500/30 transition flex items-center gap-1.5 disabled:opacity-50 shrink-0"
+              >
+                {deployStatus === 'deploying' ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Rocket className="w-3.5 h-3.5" />
+                )}
+                Запустить деплой
+              </button>
+            </div>
+
+            {deployFeedback && (
+              <div
+                className={`flex items-center gap-2 text-xs p-2.5 rounded-lg border ${
+                  deployStatus === 'success'
+                    ? 'text-emerald-400 bg-emerald-950/40 border-emerald-900/50'
+                    : 'text-rose-400 bg-rose-950/40 border-rose-900/50'
+                }`}
+              >
+                {deployStatus === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                )}
+                <span>{deployFeedback}</span>
+              </div>
             )}
           </div>
         </div>
