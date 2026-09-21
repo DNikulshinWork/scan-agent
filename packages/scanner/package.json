@@ -10,7 +10,10 @@
   },
   "dependencies": {
     "@scan-agent/events": "workspace:*",
-    "@scan-agent/shared-types": "workspace:*"
+    "@scan-agent/shared-types": "workspace:*",
+    "playwright": "^1.63.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

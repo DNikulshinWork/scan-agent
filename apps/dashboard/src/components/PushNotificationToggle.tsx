@@ -52,32 +52,29 @@ export const PushNotificationToggle: React.FC = () => {
       {isGranted ? (
         <button
           onClick={handleTestNotification}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium transition cursor-pointer"
-          title="Push-уведомления включены. Нажмите для отправки тестового уведомления"
+          className="inline-flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium transition cursor-pointer shrink-0"
+          title="Push-уведомления активны. Нажмите для отправки теста"
         >
-          <BellRing className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+          <BellRing className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-rose-400 animate-pulse" />
           <span className="hidden sm:inline">Push активны</span>
-          <span className="sm:hidden text-[11px]">Push ✓</span>
         </button>
       ) : isDenied ? (
         <button
           onClick={() => setShowDeniedHelp(true)}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gray-800/90 hover:bg-gray-800 text-amber-300/90 border border-amber-500/30 text-xs font-medium transition cursor-pointer"
+          className="inline-flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-gray-800/90 hover:bg-gray-800 text-amber-300/90 border border-amber-500/30 text-xs font-medium transition cursor-pointer shrink-0"
           title="Уведомления заблокированы в браузере. Нажмите для инструкции"
         >
-          <BellOff className="w-3.5 h-3.5 text-amber-400" />
+          <BellOff className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-amber-400" />
           <span className="hidden sm:inline">Push откл.</span>
-          <span className="sm:hidden text-[11px]">Push ✗</span>
         </button>
       ) : (
         <button
           onClick={handleEnablePush}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-medium transition cursor-pointer"
+          className="inline-flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-medium transition cursor-pointer shrink-0"
           title="Включить Push-уведомления о новых вакансиях"
         >
-          <Bell className="w-3.5 h-3.5 text-amber-400" />
+          <Bell className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-amber-400" />
           <span className="hidden sm:inline">Включить Push</span>
-          <span className="sm:hidden">Push</span>
         </button>
       )}
 

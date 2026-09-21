@@ -7,3 +7,5 @@ out
 .env.local
 .DS_Store
 *.log
+.turbo
+ms-playwright

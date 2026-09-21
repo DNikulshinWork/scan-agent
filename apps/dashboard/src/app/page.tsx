@@ -37,6 +37,14 @@ export default function DashboardPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [backendOnline, setBackendOnline] = useState<boolean | undefined>(undefined);
 
+  const [backendMeta, setBackendMeta] = useState<{
+    database?: string;
+    dbLatencyMs?: number;
+    totalOrders?: number;
+    isScanning?: boolean;
+    lastScanAt?: string;
+  }>({});
+
   useEffect(() => {
     // Read initial URL from env or localStorage
     const saved = localStorage.getItem('scan_agent_api_url');
@@ -57,7 +65,32 @@ export default function DashboardPage() {
     }
     try {
       const res = await fetch(`${clean}/api/health`, { method: 'GET' });
-      setBackendOnline(res.ok);
+      if (res.ok) {
+        const data = await res.json();
+        setBackendOnline(true);
+        setBackendMeta({
+          database: data.database,
+          dbLatencyMs: data.dbLatencyMs,
+          totalOrders: data.totalOrders,
+          isScanning: data.scanner?.isScanning,
+          lastScanAt: data.scanner?.lastScanAt,
+        });
+
+        // Загружаем актуальные вакансии из базы данных Neon
+        try {
+          const vacRes = await fetch(`${clean}/api/vacancies?limit=100`);
+          if (vacRes.ok) {
+            const dbVacancies = await vacRes.json();
+            if (Array.isArray(dbVacancies) && dbVacancies.length > 0) {
+              setVacancies(dbVacancies);
+            }
+          }
+        } catch {
+          // тихо продолжаем со стандартными
+        }
+      } else {
+        setBackendOnline(false);
+      }
     } catch {
       setBackendOnline(false);
     }
@@ -187,23 +220,46 @@ export default function DashboardPage() {
 
   const handleTriggerScan = async () => {
     setIsScanning(true);
-    setScanMessage('Подключение к API HeadHunter (hh.ru) и скоринг по стеку резюме...');
+    setScanMessage('Запуск сбора вакансий через Playwright на бэкенде (обход 403)...');
 
     try {
-      // Trigger backend job if available
       if (apiUrl && backendOnline) {
-        try {
-          await fetch(`${apiUrl.replace(/\/$/, '')}/api/scan`, { method: 'POST' });
-        } catch {
-          // fallback to client scan
+        const clean = apiUrl.trim().replace(/\/$/, '');
+        const res = await fetch(`${clean}/api/scan`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sync: true, maxPages: 2 }),
+        });
+
+        if (res.ok) {
+          const scanData = await res.json();
+          // Мгновенно запрашиваем обновленный список вакансий из базы Neon
+          const vacRes = await fetch(`${clean}/api/vacancies?limit=100`);
+          if (vacRes.ok) {
+            const dbVacancies = await vacRes.json();
+            if (Array.isArray(dbVacancies) && dbVacancies.length > 0) {
+              setVacancies(dbVacancies);
+            }
+          }
+          const count = scanData.scanned !== undefined ? scanData.scanned : 0;
+          setScanMessage(`Сбор через Playwright завершён: найдено ${count} релевантных вакансий, данные обновлены в Neon.`);
+          setTimeout(() => setScanMessage(null), 5000);
+          return;
+        } else if (res.status === 409) {
+          setScanMessage('Сбор уже выполняется другим процессом/cron-задачей. Ожидайте...');
+          setTimeout(() => setScanMessage(null), 4000);
+          return;
         }
       }
 
-      const liveItems = await fetchLiveHhVacancies(
+      // Резервный клиентский поиск при отсутствии соединения с бэкендом
+      const scanResult = await fetchLiveHhVacancies(
         'TypeScript OR React OR Node.js OR Next.js',
         true,
         scoringRules
       );
+
+      const liveItems = scanResult.vacancies;
 
       setVacancies((prev) => {
         const existingIds = new Set(prev.map((p) => p.orderId));
@@ -211,10 +267,15 @@ export default function DashboardPage() {
         return [...newItems, ...prev];
       });
 
-      setScanMessage(`Успешно получено ${liveItems.length} актуальных вакансий с HH.ru`);
-      setTimeout(() => setScanMessage(null), 4000);
+      if (scanResult.warning) {
+        setScanMessage(scanResult.warning);
+        setTimeout(() => setScanMessage(null), 8000);
+      } else {
+        setScanMessage(`Успешно получено ${liveItems.length} вакансий`);
+        setTimeout(() => setScanMessage(null), 4000);
+      }
     } catch (err: any) {
-      setScanMessage(`Ошибка сканирования: ${err.message || 'Не удалось получить вакансии'}`);
+      setScanMessage(`Ошибка сканирования: ${err.message || 'Не удалось выполнить сбор'}`);
       setTimeout(() => setScanMessage(null), 5000);
     } finally {
       setIsScanning(false);

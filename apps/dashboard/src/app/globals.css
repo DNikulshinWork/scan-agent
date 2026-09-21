@@ -2,7 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+html,
 body {
+  overflow-x: hidden;
+  max-width: 100vw;
   background-color: #030712;
   color: #f3f4f6;
   font-family: system-ui, -apple-system, sans-serif;
