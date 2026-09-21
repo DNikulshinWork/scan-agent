@@ -50,13 +50,14 @@ export const PushNotificationToggle: React.FC<PushNotificationToggleProps> = ({ 
         <button
           onClick={handleSendTest}
           disabled={isWebPushLoading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium transition cursor-pointer"
+          className="inline-flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium transition cursor-pointer shrink-0"
           title="Web Push активен (сервер VAPID). Нажмите для отправки реального пуша с сервера"
+          aria-label="Отправить тестовый Web Push"
         >
           {isWebPushLoading ? (
-            <Loader2 className="w-3.5 h-3.5 text-rose-400 animate-spin" />
+            <Loader2 className="w-4 h-4 text-rose-400 animate-spin" />
           ) : (
-            <BellRing className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+            <BellRing className="w-4 h-4 text-rose-400 animate-pulse" />
           )}
           <span className="hidden sm:inline">Web Push активен</span>
           <span className="text-[10px] text-rose-400/80 bg-rose-500/20 px-1.5 py-0.5 rounded ml-0.5 hidden lg:inline">
@@ -65,26 +66,26 @@ export const PushNotificationToggle: React.FC<PushNotificationToggleProps> = ({ 
         </button>
       ) : isDenied ? (
         <span
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-gray-800/80 text-gray-400 border border-gray-700 text-xs"
+          className="inline-flex items-center justify-center gap-1 p-2 sm:px-2.5 sm:py-1 rounded-xl bg-gray-800/80 text-gray-400 border border-gray-700 text-xs shrink-0"
           title="Push-уведомления заблокированы в настройках браузера"
         >
-          <BellOff className="w-3.5 h-3.5 text-gray-500" />
+          <BellOff className="w-4 h-4 text-gray-500" />
           <span className="hidden sm:inline">Push откл.</span>
         </span>
       ) : (
         <button
           onClick={handleSubscribe}
           disabled={isWebPushLoading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-medium transition cursor-pointer"
+          className="inline-flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-medium transition cursor-pointer shrink-0"
           title="Включить настоящий Web Push с сервера (VAPID, работает даже при закрытой вкладке)"
+          aria-label="Включить Web Push"
         >
           {isWebPushLoading ? (
-            <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+            <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
           ) : (
-            <Bell className="w-3.5 h-3.5 text-amber-400" />
+            <Bell className="w-4 h-4 text-amber-400" />
           )}
           <span className="hidden sm:inline">Включить Web Push</span>
-          <span className="sm:hidden">Push</span>
         </button>
       )}
     </div>

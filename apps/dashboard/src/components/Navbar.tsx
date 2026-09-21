@@ -1,6 +1,59 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Briefcase, BarChart3, User, Server, RefreshCw, Settings } from 'lucide-react';
 import { PushNotificationToggle } from './PushNotificationToggle';
+
+const getAssetUrl = (path: string): string => {
+  const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+  if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_BASE_PATH) {
+    const base = process.env.NEXT_PUBLIC_BASE_PATH.replace(/\/$/, '');
+    return `${base}/${cleanPath}`;
+  }
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/scan-agent')) {
+    return `/scan-agent/${cleanPath}`;
+  }
+  return `./${cleanPath}`;
+};
+
+export const BrandLogo: React.FC = () => {
+  const [hasError, setHasError] = useState(false);
+  const iconSrc = getAssetUrl('icon.svg');
+
+  if (hasError) {
+    return (
+      <div
+        className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-rose-600 via-rose-700 to-red-950 p-2 flex items-center justify-center shadow-lg shadow-rose-950/50 border border-rose-500/30 shrink-0 select-none"
+        title="ScanAgent"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="w-5 h-5 text-rose-100"
+        >
+          <circle cx="12" cy="12" r="9" className="text-rose-500/50" stroke="currentColor" />
+          <path d="M12 3a9 9 0 0 1 9 9" stroke="#f43f5e" strokeWidth="2.5" />
+          <path d="M12 7a5 5 0 0 1 5 5" stroke="#06b6d4" />
+          <circle cx="12" cy="12" r="2.5" fill="#10b981" stroke="#10b981" />
+          <line x1="12" y1="12" x2="18.5" y2="5.5" stroke="#f43f5e" strokeWidth="2" />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl shadow-lg shadow-rose-950/50 shrink-0 border border-rose-500/20 overflow-hidden bg-gray-900/90 flex items-center justify-center">
+      <img
+        src={iconSrc}
+        alt="ScanAgent"
+        className="w-full h-full object-cover"
+        onError={() => setHasError(true)}
+      />
+    </div>
+  );
+};
 
 interface NavbarProps {
   activeTab: 'vacancies' | 'stats' | 'profile' | 'plan';
@@ -25,19 +78,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-gray-950/90 backdrop-blur-md border-b border-gray-800">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-2">
+      <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16 gap-1.5 sm:gap-2">
           {/* Logo & Brand */}
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <img
-              src="/icon.svg"
-              alt="ScanAgent"
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl shadow-lg shadow-rose-950/50 shrink-0 border border-rose-500/20"
-            />
-            <div>
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <BrandLogo />
+            <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className="text-base sm:text-lg font-bold text-white tracking-tight">ScanAgent</span>
-                <span className="px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-xs font-semibold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                <span className="text-sm sm:text-base md:text-lg font-bold text-white tracking-tight truncate">
+                  ScanAgent
+                </span>
+                <span className="hidden min-[380px]:inline-block px-1.5 py-0.5 text-[9px] sm:text-[10px] font-semibold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 shrink-0">
                   PWA
                 </span>
                 {backendOnline !== undefined && (
@@ -65,7 +116,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-gray-400 hidden md:block">
+              <p className="text-[11px] text-gray-400 hidden md:block truncate">
                 Мониторинг вакансий HH.ru на фильтрах · Render & Neon & GitHub Pages
               </p>
             </div>
@@ -126,7 +177,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Actions */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <PushNotificationToggle apiUrl={apiUrl} />
 
             {onOpenSettings && (
@@ -134,6 +185,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={onOpenSettings}
                 className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-xl border border-gray-800 transition shrink-0"
                 title="Параметры источника данных и кэша IndexedDB"
+                aria-label="Настройки"
               >
                 <Settings className="w-4 h-4" />
               </button>
@@ -142,11 +194,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               onClick={onTriggerScan}
               disabled={isScanning}
-              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 text-xs sm:text-sm font-medium rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white shadow-lg shadow-rose-900/20 transition-colors shrink-0"
+              className="flex items-center justify-center gap-1.5 p-2 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-medium rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white shadow-lg shadow-rose-900/20 transition-colors shrink-0"
               title="Запустить сбор вакансий через наш бэкенд"
+              aria-label="Собрать вакансии"
             >
-              <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isScanning ? 'animate-spin' : ''}`} />
-              <span>
+              <RefreshCw className={`w-4 h-4 shrink-0 ${isScanning ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline whitespace-nowrap">
                 {isScanning ? 'Сканирование...' : 'Собрать вакансии'}
               </span>
             </button>
