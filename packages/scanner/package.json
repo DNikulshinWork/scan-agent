@@ -16,6 +16,7 @@
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "devDependencies": {
+    "@types/node": "^22.13.1",
     "typescript": "^5.7.3"
   }
 }
