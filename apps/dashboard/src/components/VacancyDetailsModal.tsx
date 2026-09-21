@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { X, ExternalLink, Copy, Check, Sparkles, Building2, MapPin, Calendar, Clock, Send } from 'lucide-react';
-import { Vacancy } from '../types';
+import { Vacancy, VacancyStatus, VacancyOutcome } from '../types';
 
 interface VacancyDetailsModalProps {
   vacancy: Vacancy | null;
   onClose: () => void;
   onUpdatePitch: (id: string, newPitch: string) => void;
+  onStatusChange?: (id: string, newStatus: VacancyStatus) => void;
+  onOutcomeChange?: (id: string, newOutcome: VacancyOutcome) => void;
 }
 
 export const VacancyDetailsModal: React.FC<VacancyDetailsModalProps> = ({

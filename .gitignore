@@ -9,3 +9,4 @@ out
 *.log
 .turbo
 ms-playwright
+*.tsbuildinfo

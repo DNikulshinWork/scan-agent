@@ -1,5 +1,5 @@
 import React from 'react';
-import { Briefcase, BarChart3, User, Server, RefreshCw, Settings, Radio, CheckCircle2 } from 'lucide-react';
+import { Briefcase, BarChart3, User, Server, RefreshCw, Settings } from 'lucide-react';
 import { PushNotificationToggle } from './PushNotificationToggle';
 
 interface NavbarProps {
@@ -10,9 +10,8 @@ interface NavbarProps {
   vacanciesCount: number;
   onOpenSettings?: () => void;
   backendOnline?: boolean;
+  apiUrl?: string;
 }
-
-const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
@@ -22,22 +21,23 @@ export const Navbar: React.FC<NavbarProps> = ({
   vacanciesCount,
   onOpenSettings,
   backendOnline,
+  apiUrl,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-gray-950/90 backdrop-blur-md border-b border-gray-800">
-      <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-14 sm:h-16 gap-1.5 sm:gap-2">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16 gap-2">
           {/* Logo & Brand */}
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="flex items-center gap-2.5 sm:gap-3">
             <img
-              src={`${basePath}/icon.svg`}
+              src="/icon.svg"
               alt="ScanAgent"
-              className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl shadow-lg shadow-rose-950/50 shrink-0 border border-rose-500/20"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl shadow-lg shadow-rose-950/50 shrink-0 border border-rose-500/20"
             />
-            <div className="min-w-0">
+            <div>
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className="text-sm sm:text-lg font-bold text-white tracking-tight truncate">ScanAgent</span>
-                <span className="hidden sm:inline px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-xs font-semibold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 shrink-0">
+                <span className="text-base sm:text-lg font-bold text-white tracking-tight">ScanAgent</span>
+                <span className="px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-xs font-semibold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
                   PWA
                 </span>
                 {backendOnline !== undefined && (
@@ -125,15 +125,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </nav>
 
-          {/* Action Triggers */}
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            <PushNotificationToggle />
+          {/* Actions */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <PushNotificationToggle apiUrl={apiUrl} />
 
             {onOpenSettings && (
               <button
                 onClick={onOpenSettings}
-                className="p-1.5 sm:p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-xl border border-gray-800 transition shrink-0"
-                title="Настройки подключения к API"
+                className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-xl border border-gray-800 transition shrink-0"
+                title="Параметры источника данных и кэша IndexedDB"
               >
                 <Settings className="w-4 h-4" />
               </button>
@@ -142,15 +142,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               onClick={onTriggerScan}
               disabled={isScanning}
-              className="flex items-center gap-1 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white shadow-lg shadow-rose-900/20 transition-colors shrink-0"
-              title="Запустить мгновенный сбор и скоринг вакансий с HH.ru"
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 text-xs sm:text-sm font-medium rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white shadow-lg shadow-rose-900/20 transition-colors shrink-0"
+              title="Запустить сбор вакансий через наш бэкенд"
             >
               <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isScanning ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">
-                {isScanning ? 'Сканирование HH...' : 'Собрать с HH.ru'}
-              </span>
-              <span className="sm:hidden">
-                {isScanning ? 'Сбор...' : 'Сбор'}
+              <span>
+                {isScanning ? 'Сканирование...' : 'Собрать вакансии'}
               </span>
             </button>
           </div>

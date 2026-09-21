@@ -17,6 +17,7 @@ import {
   triggerBackendScanJob,
   syncVacancyUpdate,
   checkBackendStatus,
+  fetchScoringRules,
   DEFAULT_BACKEND_URL,
 } from '../services/backendService';
 import { getCachedVacancies, getCacheMeta } from '../services/indexedDbStorage';
@@ -111,6 +112,13 @@ export default function DashboardPage() {
     setApiUrl(effectiveUrl);
 
     refreshData(effectiveUrl);
+
+    // 3. Загружаем scoring rules из базы данных Neon
+    fetchScoringRules(effectiveUrl).then(({ rules }) => {
+      if (isMounted && rules) {
+        setScoringRules(rules);
+      }
+    });
 
     return () => {
       isMounted = false;
@@ -260,6 +268,7 @@ export default function DashboardPage() {
         vacanciesCount={counts.all}
         onOpenSettings={() => setIsSettingsOpen(true)}
         backendOnline={backendOnline}
+        apiUrl={apiUrl}
       />
 
       {/* Global Toast / Notification */}
@@ -443,6 +452,7 @@ export default function DashboardPage() {
             onUpdateProfile={setProfile}
             scoringRules={scoringRules}
             onUpdateScoringRules={setScoringRules}
+            apiUrl={apiUrl}
           />
         )}
 

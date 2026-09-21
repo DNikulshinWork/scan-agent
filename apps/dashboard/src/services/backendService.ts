@@ -1,5 +1,5 @@
 import { Vacancy, KeywordScoringRule, VacancyStatus, VacancyOutcome } from '../types';
-import { initialVacancies } from '../data/mockData';
+import { initialVacancies, defaultScoringRules } from '../data/mockData';
 import {
   getCachedVacancies,
   saveCachedVacancies,
@@ -274,4 +274,140 @@ export async function syncVacancyUpdate(
       timestamp: Date.now(),
     });
   }
+}
+
+/**
+ * Загрузка актуальных правил скоринга с бэкенда (Neon PostgreSQL)
+ */
+export async function fetchScoringRules(
+  apiUrl: string = DEFAULT_BACKEND_URL
+): Promise<{ rules: KeywordScoringRule; source: 'backend' | 'cache' }> {
+  const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(`${clean}/api/scoring-rules`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const rules = await res.json();
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('scan_agent_scoring_rules', JSON.stringify(rules));
+      }
+      return { rules, source: 'backend' };
+    }
+  } catch {
+    // fallback to cache
+  }
+
+  if (typeof window !== 'undefined') {
+    const cached = localStorage.getItem('scan_agent_scoring_rules');
+    if (cached) {
+      try {
+        return { rules: JSON.parse(cached), source: 'cache' };
+      } catch {}
+    }
+  }
+  return { rules: defaultScoringRules, source: 'cache' };
+}
+
+/**
+ * Сохранение правил скоринга на бэкенде в базе данных Neon
+ */
+export async function saveScoringRules(
+  apiUrl: string = DEFAULT_BACKEND_URL,
+  rules: KeywordScoringRule
+): Promise<{ ok: boolean; message: string }> {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('scan_agent_scoring_rules', JSON.stringify(rules));
+  }
+  const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+  try {
+    const res = await fetch(`${clean}/api/scoring-rules`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rules),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return { ok: true, message: data.message || 'Правила скоринга сохранены в базе Neon' };
+    }
+    return { ok: false, message: `Ошибка сервера (${res.status})` };
+  } catch (err: any) {
+    return { ok: false, message: 'Бэкенд временно недоступен, правила сохранены локально в кэше' };
+  }
+}
+
+/**
+ * Получение публичного VAPID-ключа для оформления браузерной подписки Push
+ */
+export async function fetchVapidPublicKey(
+  apiUrl: string = DEFAULT_BACKEND_URL
+): Promise<string> {
+  const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+  const res = await fetch(`${clean}/api/push/vapid-public-key`);
+  if (!res.ok) throw new Error('Не удалось получить VAPID ключ с бэкенда');
+  const data = await res.json();
+  return data.publicKey;
+}
+
+/**
+ * Сохранение Push-подписки браузера на бэкенде
+ */
+export async function registerPushSubscription(
+  apiUrl: string = DEFAULT_BACKEND_URL,
+  subscription: PushSubscription
+): Promise<{ ok: boolean; message: string }> {
+  const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+  const subJson = subscription.toJSON();
+  const res = await fetch(`${clean}/api/push/subscribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      endpoint: subJson.endpoint,
+      keys: subJson.keys,
+    }),
+  });
+  if (!res.ok) throw new Error('Ошибка сохранения Push-подписки на бэкенде');
+  return res.json();
+}
+
+/**
+ * Отписка от Web Push на сервере
+ */
+export async function unregisterPushSubscription(
+  apiUrl: string = DEFAULT_BACKEND_URL,
+  endpoint: string
+): Promise<{ ok: boolean }> {
+  const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+  const res = await fetch(`${clean}/api/push/unsubscribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint }),
+  });
+  return res.json();
+}
+
+/**
+ * Вызов отправки тестового Web Push уведомления с сервера
+ */
+export async function triggerServerTestPush(
+  apiUrl: string = DEFAULT_BACKEND_URL,
+  endpoint?: string
+): Promise<{ ok: boolean; message: string; sent?: number }> {
+  const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+  const res = await fetch(`${clean}/api/push/send-test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || 'Ошибка отправки тестового Web Push с сервера');
+  }
+  return res.json();
 }

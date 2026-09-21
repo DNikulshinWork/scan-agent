@@ -5,6 +5,13 @@ import { prisma } from '@scan-agent/database';
 import { appEventBus, EventType } from '@scan-agent/events';
 import { runHhScannerJob, ScannerOptions } from '@scan-agent/scanner';
 import { KeywordScoringRule, Vacancy } from '@scan-agent/shared-types';
+import {
+  getVapidPublicKey,
+  savePushSubscription,
+  removePushSubscription,
+  broadcastPushNotification,
+  sendTestPushNotification,
+} from './pushService.js';
 
 dotenv.config();
 
@@ -46,6 +53,39 @@ const defaultRules: KeywordScoringRule = {
   minScore: 6,
 };
 
+let activeRules: KeywordScoringRule = { ...defaultRules };
+
+async function loadRulesFromDb(): Promise<KeywordScoringRule> {
+  try {
+    const config = await prisma.scoringRuleConfig.findUnique({ where: { id: 'default' } });
+    if (config) {
+      activeRules = {
+        coreStack: config.coreStack ? config.coreStack.split(',').map((s: string) => s.trim()).filter(Boolean) : defaultRules.coreStack,
+        relatedStack: config.relatedStack ? config.relatedStack.split(',').map((s: string) => s.trim()).filter(Boolean) : defaultRules.relatedStack,
+        niceToHave: config.niceToHave ? config.niceToHave.split(',').map((s: string) => s.trim()).filter(Boolean) : defaultRules.niceToHave,
+        hardExclude: config.hardExclude ? config.hardExclude.split(',').map((s: string) => s.trim()).filter(Boolean) : defaultRules.hardExclude,
+        minScore: typeof config.minScore === 'number' ? config.minScore : defaultRules.minScore,
+      };
+      fastify.log.info('[ScoringRules] Правила скоринга успешно загружены из базы PostgreSQL');
+    } else {
+      await prisma.scoringRuleConfig.create({
+        data: {
+          id: 'default',
+          coreStack: defaultRules.coreStack.join(','),
+          relatedStack: defaultRules.relatedStack.join(','),
+          niceToHave: defaultRules.niceToHave.join(','),
+          hardExclude: defaultRules.hardExclude.join(','),
+          minScore: defaultRules.minScore,
+        },
+      });
+      fastify.log.info('[ScoringRules] Создана начальная запись правил скоринга в PostgreSQL');
+    }
+  } catch (err) {
+    fastify.log.warn(err, '[ScoringRules] Не удалось прочитать правила из базы данных, используются дефолтные');
+  }
+  return activeRules;
+}
+
 // ==========================================
 // Состояние сканера и блокировка параллельных запусков
 // ==========================================
@@ -60,10 +100,10 @@ let lastError: string | null = null;
 let nextScheduledRun: string | null = null;
 let timerId: NodeJS.Timeout | null = null;
 
-// Слушатель событий для сохранения вакансий в PostgreSQL (Neon)
+// Слушатель событий для сохранения вакансий в PostgreSQL (Neon) и отправки Web Push
 appEventBus.on(EventType.VACANCY_FILTER_PASSED, async ({ vacancy }: { vacancy: Vacancy }) => {
   try {
-    await prisma.order.upsert({
+    const saved = await prisma.order.upsert({
       where: { orderId_source: { orderId: vacancy.orderId, source: 'hh' } },
       update: {
         score: vacancy.score,
@@ -94,6 +134,21 @@ appEventBus.on(EventType.VACANCY_FILTER_PASSED, async ({ vacancy }: { vacancy: V
         publishedAt: new Date(vacancy.publishedAt),
       },
     });
+
+    // Отправляем настоящий Web Push всем подписчикам, если вакансия набрала высокий балл
+    if (vacancy.score >= (activeRules.minScore || 6)) {
+      broadcastPushNotification({
+        title: `🎯 HH.ru: ${vacancy.title.slice(0, 45)}...`,
+        body: `${vacancy.employer || 'Компания'} · ${vacancy.price || 'З/п не указана'} · Скоринг: ${vacancy.score}/10`,
+        icon: '/pwa-192x192.png',
+        badge: '/pwa-192x192.png',
+        data: {
+          url: vacancy.link || './',
+          orderId: vacancy.orderId,
+          id: saved.id,
+        },
+      }).catch((err) => fastify.log.warn(err, '[WebPush] Ошибка бродкаста уведомления'));
+    }
   } catch (err) {
     fastify.log.error(err, `Ошибка сохранения вакансии hh-${vacancy.orderId} в БД`);
   }
@@ -118,7 +173,7 @@ async function executeScanJob(
 
   try {
     const vacancies = await runHhScannerJob({
-      rules: defaultRules,
+      rules: activeRules,
       maxPages: options?.maxPages ?? Number(process.env.HH_MAX_PAGES || 2),
       searchUrl: options?.searchUrl,
     });
@@ -376,9 +431,157 @@ fastify.patch('/api/vacancies/:id', async (req) => {
   return updated;
 });
 
+// ==========================================
+// Правила скоринга (Scoring Rules) в базе Neon
+// ==========================================
+fastify.get('/api/scoring-rules', async () => {
+  return activeRules;
+});
+
+fastify.put('/api/scoring-rules', async (req: FastifyRequest, reply: FastifyReply) => {
+  const body = (req.body as Partial<KeywordScoringRule>) || {};
+
+  const updatedRules: KeywordScoringRule = {
+    coreStack: Array.isArray(body.coreStack) ? body.coreStack : activeRules.coreStack,
+    relatedStack: Array.isArray(body.relatedStack) ? body.relatedStack : activeRules.relatedStack,
+    niceToHave: Array.isArray(body.niceToHave) ? body.niceToHave : activeRules.niceToHave,
+    hardExclude: Array.isArray(body.hardExclude) ? body.hardExclude : activeRules.hardExclude,
+    minScore: typeof body.minScore === 'number' ? body.minScore : activeRules.minScore,
+  };
+
+  try {
+    await prisma.scoringRuleConfig.upsert({
+      where: { id: 'default' },
+      update: {
+        coreStack: updatedRules.coreStack.join(','),
+        relatedStack: updatedRules.relatedStack.join(','),
+        niceToHave: updatedRules.niceToHave.join(','),
+        hardExclude: updatedRules.hardExclude.join(','),
+        minScore: updatedRules.minScore,
+        updatedAt: new Date(),
+      },
+      create: {
+        id: 'default',
+        coreStack: updatedRules.coreStack.join(','),
+        relatedStack: updatedRules.relatedStack.join(','),
+        niceToHave: updatedRules.niceToHave.join(','),
+        hardExclude: updatedRules.hardExclude.join(','),
+        minScore: updatedRules.minScore,
+      },
+    });
+
+    activeRules = updatedRules;
+    fastify.log.info('[ScoringRules] Правила скоринга обновлены пользователем и сохранены в PostgreSQL');
+    return reply.send({ ok: true, rules: activeRules, message: 'Правила скоринга сохранены в базе Neon' });
+  } catch (err: any) {
+    fastify.log.error(err, 'Ошибка сохранения правил скоринга в БД');
+    return reply.status(500).send({ ok: false, error: err.message || 'Failed to save scoring rules' });
+  }
+});
+
+fastify.post('/api/scoring-rules', async (req: FastifyRequest, reply: FastifyReply) => {
+  const body = (req.body as Partial<KeywordScoringRule>) || {};
+  const updatedRules: KeywordScoringRule = {
+    coreStack: Array.isArray(body.coreStack) ? body.coreStack : activeRules.coreStack,
+    relatedStack: Array.isArray(body.relatedStack) ? body.relatedStack : activeRules.relatedStack,
+    niceToHave: Array.isArray(body.niceToHave) ? body.niceToHave : activeRules.niceToHave,
+    hardExclude: Array.isArray(body.hardExclude) ? body.hardExclude : activeRules.hardExclude,
+    minScore: typeof body.minScore === 'number' ? body.minScore : activeRules.minScore,
+  };
+
+  try {
+    await prisma.scoringRuleConfig.upsert({
+      where: { id: 'default' },
+      update: {
+        coreStack: updatedRules.coreStack.join(','),
+        relatedStack: updatedRules.relatedStack.join(','),
+        niceToHave: updatedRules.niceToHave.join(','),
+        hardExclude: updatedRules.hardExclude.join(','),
+        minScore: updatedRules.minScore,
+        updatedAt: new Date(),
+      },
+      create: {
+        id: 'default',
+        coreStack: updatedRules.coreStack.join(','),
+        relatedStack: updatedRules.relatedStack.join(','),
+        niceToHave: updatedRules.niceToHave.join(','),
+        hardExclude: updatedRules.hardExclude.join(','),
+        minScore: updatedRules.minScore,
+      },
+    });
+
+    activeRules = updatedRules;
+    return reply.send({ ok: true, rules: activeRules });
+  } catch (err: any) {
+    return reply.status(500).send({ ok: false, error: err.message });
+  }
+});
+
+// ==========================================
+// Настоящий Web Push (VAPID / RFC 8291)
+// ==========================================
+// Получение публичного VAPID ключа клиентом
+fastify.get('/api/push/vapid-public-key', async () => {
+  return {
+    publicKey: getVapidPublicKey(),
+  };
+});
+
+// Сохранение Push-подписки браузера
+fastify.post('/api/push/subscribe', async (req: FastifyRequest, reply: FastifyReply) => {
+  const body = (req.body as any) || {};
+  if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
+    return reply.status(400).send({ ok: false, error: 'Invalid PushSubscription payload' });
+  }
+
+  try {
+    const userAgent = (req.headers['user-agent'] as string) || '';
+    await savePushSubscription({
+      endpoint: body.endpoint,
+      keys: {
+        p256dh: body.keys.p256dh,
+        auth: body.keys.auth,
+      },
+      userAgent,
+    });
+    return reply.send({ ok: true, message: 'Web Push подписка сохранена в базе Neon' });
+  } catch (err: any) {
+    fastify.log.error(err, 'Ошибка сохранения Push-подписки');
+    return reply.status(500).send({ ok: false, error: err.message });
+  }
+});
+
+// Отписка браузера от Web Push
+fastify.post('/api/push/unsubscribe', async (req: FastifyRequest) => {
+  const body = (req.body as any) || {};
+  if (body.endpoint) {
+    await removePushSubscription(body.endpoint);
+  }
+  return { ok: true };
+});
+
+// Тестовая отправка Web Push уведомления с сервера
+fastify.post('/api/push/send-test', async (req: FastifyRequest, reply: FastifyReply) => {
+  const body = (req.body as any) || {};
+  try {
+    const result = await sendTestPushNotification(body.endpoint);
+    return reply.send({ ok: true, ...result, message: 'Тестовое Web Push уведомление отправлено' });
+  } catch (err: any) {
+    fastify.log.error(err, 'Ошибка тестовой отправки Web Push');
+    return reply.status(500).send({ ok: false, error: err.message });
+  }
+});
+
+// Количество активных Web Push подписчиков
+fastify.get('/api/push/subscriptions/count', async () => {
+  const count = await prisma.pushSubscription.count().catch(() => 0);
+  return { count };
+});
+
 const start = async () => {
   const port = Number(process.env.PORT) || 10000;
   await fastify.listen({ port, host: '0.0.0.0' });
+  await loadRulesFromDb();
   initInternalCron();
   fastify.log.info(`[Fastify API] Сервер запущен на 0.0.0.0:${port}`);
 };

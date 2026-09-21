@@ -36,3 +36,27 @@ model Order {
   @@index([createdAt(sort: Desc)])
   @@map("orders")
 }
+
+model PushSubscription {
+  id        String   @id @default(uuid()) @db.Uuid
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("push_subscriptions")
+}
+
+model ScoringRuleConfig {
+  id           String   @id @default("default")
+  coreStack    String   @default("") @map("core_stack")
+  relatedStack String   @default("") @map("related_stack")
+  niceToHave   String   @default("") @map("nice_to_have")
+  hardExclude  String   @default("") @map("hard_exclude")
+  minScore     Int      @default(6) @map("min_score")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("scoring_rule_configs")
+}
