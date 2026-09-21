@@ -11,6 +11,7 @@ export const PWAInstallPrompt: React.FC = () => {
     return null;
   }
 
+  // Android / Chromium / Desktop Install Banner/Button
   if (isInstallable) {
     return (
       <div className="bg-gradient-to-r from-rose-900/90 to-red-950/90 border border-rose-700/80 rounded-2xl p-3.5 sm:p-4 mb-5 flex items-center justify-between gap-3 shadow-lg shadow-rose-950/40 animate-fadeIn">
@@ -51,6 +52,7 @@ export const PWAInstallPrompt: React.FC = () => {
     );
   }
 
+  // iOS Safari Guide
   if (isIOS) {
     return (
       <>

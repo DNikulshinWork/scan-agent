@@ -211,141 +211,18 @@ ${projectHighlight}
   return { hook, pitch };
 }
 
-export interface FetchVacanciesResult {
-  vacancies: Vacancy[];
-  warning?: string;
-  isAuthRequired?: boolean;
-}
-
-/**
- * Генерация актуальных релевантных вакансий по стеку Дмитрия Никульшина
- * для режима, когда публичный HH API возвращает 403 (требует OAuth-токен) или оффлайн.
- */
-function generateFallbackVacancies(rules: KeywordScoringRule): Vacancy[] {
-  const now = Date.now();
-  const pool = [
-    {
-      orderId: String(112450000 + Math.floor(Math.random() * 90000)),
-      title: 'Senior / Middle+ Fullstack Developer (Next.js 15, TypeScript, NestJS)',
-      employer: 'VK Tech Platform',
-      city: 'Москва / Удаленно',
-      req: 'Опыт разработки на TypeScript, React 19, Next.js 15 (App Router, Server Actions). Знание NestJS, PostgreSQL, Prisma, Redis, Docker.',
-      resp: 'Проектирование микросервисов, оптимизация SSR/SSG страниц, интеграция WebSocket и разработка отказоустойчивого REST API.',
-      salary: { from: 290000, to: 360000, currency: 'RUR', gross: true },
-      experience: { name: '3–6 лет' },
-      schedule: { id: 'remote', name: 'Удаленная работа' },
-      publishedOffset: 900000, // 15 mins ago
-    },
-    {
-      orderId: String(112450000 + Math.floor(Math.random() * 90000)),
-      title: 'Senior Frontend Developer (React, Next.js, TypeScript, TanStack Query)',
-      employer: 'Fintech Cloud Core',
-      city: 'Удаленно',
-      req: 'Уверенное владение TypeScript, Next.js 14/15, Tailwind CSS, TanStack Query, Docker. Опыт архитектурного рефакторинга.',
-      resp: 'Создание адаптивных интерфейсов, клиентских PWA-приложений, оптимизация веб-метрик Core Web Vitals.',
-      salary: { from: 270000, to: 340000, currency: 'RUR', gross: true },
-      experience: { name: '3–6 лет' },
-      schedule: { id: 'remote', name: 'Удаленная работа' },
-      publishedOffset: 1800000, // 30 mins ago
-    },
-    {
-      orderId: String(112450000 + Math.floor(Math.random() * 90000)),
-      title: 'Backend Engineer / Node.js (TypeScript, Fastify / NestJS, PostgreSQL)',
-      employer: 'E-Commerce Platform Solutions',
-      city: 'Санкт-Петербург / Удаленно',
-      req: 'Node.js, TypeScript, PostgreSQL, Prisma/TypeORM, Docker, Redis. Навыки проектирования надежных распределенных схем данных.',
-      resp: 'Развитие сервисов биллинга и заказов, реализация фоновых задач и сканеров, оптимизация очередей.',
-      salary: { from: 260000, to: 320000, currency: 'RUR', gross: true },
-      experience: { name: '3–6 лет' },
-      schedule: { id: 'remote', name: 'Удаленная работа' },
-      publishedOffset: 2700000, // 45 mins ago
-    },
-    {
-      orderId: String(112450000 + Math.floor(Math.random() * 90000)),
-      title: 'Fullstack разработчик (React Native / Expo + Node.js)',
-      employer: 'DriveTech Logistics',
-      city: 'Удаленно',
-      req: 'React Native (Expo), TypeScript, Node.js, Express, WebSocket, PostgreSQL. Опыт сборки и работы с картами.',
-      resp: 'Развитие мобильного приложения трекинга корпоративного автопарка для водителей и веб-панели диспетчеров.',
-      salary: { from: 250000, to: 310000, currency: 'RUR', gross: true },
-      experience: { name: '3–6 лет' },
-      schedule: { id: 'remote', name: 'Удаленная работа' },
-      publishedOffset: 3600000, // 1 hour ago
-    },
-    {
-      orderId: String(112450000 + Math.floor(Math.random() * 90000)),
-      title: 'AI Fullstack Developer (FastAPI, Python, Node.js, TypeScript, pgvector)',
-      employer: 'DocBrain AI Lab',
-      city: 'Удаленно',
-      req: 'Python (FastAPI), TypeScript, PostgreSQL + pgvector, RAG-пайплайны, интеграция эмбеддингов и LLM.',
-      resp: 'Создание автономных интеллектуальных агентов для обработки документации и семантического поиска.',
-      salary: { from: 280000, to: 350000, currency: 'RUR', gross: true },
-      experience: { name: '3–6 лет' },
-      schedule: { id: 'remote', name: 'Удаленная работа' },
-      publishedOffset: 5400000, // 1.5 hours ago
-    },
-  ];
-
-  return pool.map((item) => {
-    const fullDesc = `${item.req} ${item.resp}`;
-    const evaluation = evaluateKeywords(item.title, fullDesc, rules);
-    const pitches = generatePitchForVacancy(item.title, evaluation.matchedKeywords);
-    const salaryNum = parseSalaryNumber(item.salary as any);
-
-    return {
-      id: `hh-${item.orderId}`,
-      orderId: item.orderId,
-      source: 'hh' as const,
-      title: item.title,
-      description: fullDesc,
-      price: formatSalary(item.salary as any),
-      salaryNum,
-      link: `https://hh.ru/vacancy/${item.orderId}`,
-      employer: item.employer,
-      city: item.city,
-      isRemote: true,
-      score: evaluation.score,
-      keywordScore: evaluation.keywordScore,
-      matchPercentage: evaluation.matchPercentage,
-      matchedKeywords: evaluation.matchedKeywords,
-      missingKeywords: evaluation.missingKeywords,
-      filterVerdict: evaluation.filterVerdict,
-      hook: pitches.hook,
-      pitch: pitches.pitch,
-      tags: evaluation.matchedKeywords.length > 0 ? evaluation.matchedKeywords : ['TypeScript', 'Node.js', 'React'],
-      status: 'new' as const,
-      outcome: 'pending' as const,
-      publishedAt: new Date(now - item.publishedOffset).toISOString(),
-      processedAt: new Date(now).toISOString(),
-      experienceRequirement: item.experience.name,
-      schedule: item.schedule.name,
-    };
-  });
-}
-
 import { loadVacanciesWithCache, DEFAULT_BACKEND_URL } from './backendService';
 
 /**
- * Запрос вакансий: прямое обращение к api.hh.ru полностью удалено.
- * Данные поступают строго через наш бэкенд (Neon PostgreSQL) с кэшированием в IndexedDB.
- * При недоступности бэкенда данные мгновенно отдаются из локального кэша.
+ * Получение вакансий: взаимодействие переведено исключительно на наш бэкенд (Neon/Render)
+ * с кэшированием в IndexedDB. Прямые обращения к api.hh.ru полностью исключены.
  */
 export async function fetchLiveHhVacancies(
   _query?: string,
   _remoteOnly?: boolean,
   _rules?: KeywordScoringRule,
-  _customToken?: string
-): Promise<FetchVacanciesResult> {
-  const apiUrl =
-    (typeof window !== 'undefined' ? localStorage.getItem('scan_agent_api_url') || '' : '') ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    DEFAULT_BACKEND_URL;
-
+  apiUrl: string = DEFAULT_BACKEND_URL
+): Promise<Vacancy[]> {
   const result = await loadVacanciesWithCache(apiUrl);
-
-  return {
-    vacancies: result.vacancies,
-    warning: result.warning,
-    isAuthRequired: false,
-  };
+  return result.vacancies;
 }

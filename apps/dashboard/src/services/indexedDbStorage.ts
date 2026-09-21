@@ -97,6 +97,7 @@ export async function getCachedVacancies(): Promise<Vacancy[]> {
 
       request.onsuccess = () => {
         const items = request.result || [];
+        // Сортировка по времени публикации / создания (свежие сверху)
         items.sort((a, b) => {
           const dateA = new Date(a.publishedAt || a.processedAt || 0).getTime();
           const dateB = new Date(b.publishedAt || b.processedAt || 0).getTime();
@@ -139,6 +140,7 @@ export async function saveCachedVacancies(newVacancies: Vacancy[]): Promise<void
       const vacStore = tx.objectStore(VACANCIES_STORE);
       const metaStore = tx.objectStore(META_STORE);
 
+      // Получаем существующие для слияния локальных статусов
       const getExisting = vacStore.getAll();
 
       getExisting.onsuccess = () => {
@@ -150,6 +152,7 @@ export async function saveCachedVacancies(newVacancies: Vacancy[]): Promise<void
 
         for (const vac of newVacancies) {
           const existing = existingMap.get(vac.id) || (vac.orderId ? existingMap.get(vac.orderId) : undefined);
+          // Сохраняем пользовательский статус, если пользователь уже откликнулся или отклонил локально
           const merged: Vacancy = {
             ...vac,
             status: existing && existing.status !== 'new' ? existing.status : vac.status,
@@ -160,6 +163,7 @@ export async function saveCachedVacancies(newVacancies: Vacancy[]): Promise<void
           vacStore.put(merged);
         }
 
+        // Записываем метаданные синхронизации
         metaStore.put({
           key: 'sync_meta',
           lastSyncAt: new Date().toISOString(),
@@ -168,6 +172,7 @@ export async function saveCachedVacancies(newVacancies: Vacancy[]): Promise<void
       };
 
       tx.oncomplete = () => {
+        // Дублируем в localStorage для мгновенной доступности
         saveLocalStorageVacancies(newVacancies);
         resolve();
       };
