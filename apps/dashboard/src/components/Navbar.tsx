@@ -42,15 +42,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
                 {backendOnline !== undefined && (
                   <span
-                    className={`inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-[11px] font-medium rounded-full border shrink-0 ${
+                    onClick={onOpenSettings}
+                    className={`cursor-pointer inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-[11px] font-medium rounded-full border shrink-0 transition-colors ${
                       backendOnline
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                        : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                        : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/20'
                     }`}
-                    title={backendOnline ? 'Бэкенд Fastify API подключен' : 'Работа в режиме прямого HH API'}
+                    title={
+                      backendOnline
+                        ? 'Бэкенд Fastify API + Neon DB подключен'
+                        : 'Автономный режим: данные загружаются из локального кэша IndexedDB'
+                    }
                   >
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${backendOnline ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-                    <span className="hidden md:inline">{backendOnline ? 'API Online' : 'Client Mode'}</span>
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        backendOnline ? 'bg-emerald-400 animate-pulse' : 'bg-cyan-400'
+                      }`}
+                    />
+                    <span className="hidden md:inline">
+                      {backendOnline ? 'Бэкенд Онлайн' : 'IndexedDB Кэш'}
+                    </span>
                   </span>
                 )}
               </div>

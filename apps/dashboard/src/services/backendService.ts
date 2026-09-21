@@ -1,0 +1,277 @@
+import { Vacancy, KeywordScoringRule, VacancyStatus, VacancyOutcome } from '../types';
+import { initialVacancies } from '../data/mockData';
+import {
+  getCachedVacancies,
+  saveCachedVacancies,
+  updateCachedVacancy,
+  queuePendingSync,
+  flushPendingSync,
+  getCacheMeta,
+} from './indexedDbStorage';
+
+export const DEFAULT_BACKEND_URL = 'https://scan-agent-api.onrender.com';
+
+export interface FetchResult {
+  vacancies: Vacancy[];
+  source: 'backend' | 'cache' | 'fallback';
+  warning?: string;
+  isBackendOnline?: boolean;
+  totalCached?: number;
+  lastSyncAt?: string | null;
+}
+
+export interface BackendHealthResponse {
+  status: string;
+  api: string;
+  database: string;
+  dbLatencyMs?: number;
+  totalOrders?: number;
+  uptimeSeconds?: number;
+  scanner?: {
+    isScanning: boolean;
+    autoScanEnabled: boolean;
+    autoScanIntervalMinutes: number;
+    lastScanAt: string | null;
+    lastScanDurationMs?: number;
+    lastFoundCount?: number;
+    nextScheduledRun: string | null;
+    lastError: string | null;
+  };
+}
+
+/**
+ * Проверка доступности нашего бэкенда и базы данных Neon
+ */
+export async function checkBackendStatus(
+  apiUrl: string = DEFAULT_BACKEND_URL
+): Promise<{ ok: boolean; data?: BackendHealthResponse; error?: string }> {
+  const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+  if (!clean) return { ok: false, error: 'URL бэкенда не указан' };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 7000);
+
+  try {
+    const res = await fetch(`${clean}/api/health`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data: BackendHealthResponse = await res.json();
+      return { ok: true, data };
+    }
+    return { ok: false, error: `Бэкенд вернул статус HTTP ${res.status}` };
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    return {
+      ok: false,
+      error: err.name === 'AbortError' ? 'Таймаут (бэкенд на Render просыпается)' : 'Сервер недоступен',
+    };
+  }
+}
+
+/**
+ * Получение вакансий: строго через наш бэкенд с автоматическим кэшированием в IndexedDB.
+ * Никаких прямых обращений к api.hh.ru!
+ * При недоступности бэкенда мгновенно отдаются данные из локального кэша IndexedDB.
+ */
+export async function loadVacanciesWithCache(
+  apiUrl: string = DEFAULT_BACKEND_URL
+): Promise<FetchResult> {
+  const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+  const cached = await getCachedVacancies();
+  const meta = await getCacheMeta();
+
+  // 1. Пытаемся получить свежие данные с нашего бэкенда (Neon PostgreSQL)
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(`${clean}/api/vacancies?limit=150`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const normalized: Vacancy[] = data.map((item: any) => ({
+          id: item.id || `hh-${item.orderId}`,
+          orderId: String(item.orderId),
+          source: 'hh',
+          title: item.title || 'Без названия',
+          description: item.description || '',
+          price: item.price || 'Договорная',
+          salaryNum: item.salaryNum ?? null,
+          link: item.link || `https://hh.ru/vacancy/${item.orderId}`,
+          employer: item.employer || 'Компания не указана',
+          city: item.city || 'Удаленно',
+          isRemote: Boolean(item.isRemote),
+          score: item.score ?? 5,
+          keywordScore: item.score ? item.score * 4 : 20,
+          matchPercentage: item.matchPercent ?? item.matchPercentage ?? 75,
+          matchedKeywords: Array.isArray(item.tags)
+            ? item.tags
+            : typeof item.tags === 'string' && item.tags
+            ? item.tags.split(',').map((t: string) => t.trim())
+            : ['TypeScript', 'React'],
+          missingKeywords: [],
+          filterVerdict: item.verdict || item.filterVerdict || 'Соответствует стеку резюме',
+          hook: item.hook || '',
+          pitch: item.pitch || '',
+          tags: Array.isArray(item.tags)
+            ? item.tags
+            : typeof item.tags === 'string' && item.tags
+            ? item.tags.split(',').map((t: string) => t.trim())
+            : ['TypeScript', 'React'],
+          status: (item.status as VacancyStatus) || 'new',
+          outcome: (item.outcome as VacancyOutcome) || 'pending',
+          publishedAt: item.publishedAt ? new Date(item.publishedAt).toISOString() : new Date().toISOString(),
+          processedAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(),
+          appliedAt: item.appliedAt ? new Date(item.appliedAt).toISOString() : null,
+          experienceRequirement: item.experienceRequirement,
+          schedule: item.schedule,
+        }));
+
+        // Сохраняем в кэш IndexedDB
+        await saveCachedVacancies(normalized);
+
+        // Пытаемся отправить отложенные оффлайн-мутации, если были
+        await flushPendingSync(async (pending) => {
+          try {
+            const pRes = await fetch(`${clean}/api/vacancies/${pending.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: pending.status, outcome: pending.outcome }),
+            });
+            return pRes.ok;
+          } catch {
+            return false;
+          }
+        });
+
+        return {
+          vacancies: normalized,
+          source: 'backend',
+          isBackendOnline: true,
+          totalCached: normalized.length,
+          lastSyncAt: new Date().toISOString(),
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Backend request failed or timed out, using cache:', err);
+  }
+
+  // 2. Если бэкенд не ответил, возвращаем кэш из IndexedDB
+  if (cached.length > 0) {
+    return {
+      vacancies: cached,
+      source: 'cache',
+      isBackendOnline: false,
+      warning: `Бэкенд на Render временно недоступен или засыпает. Загружено ${cached.length} вакансий из локального кэша IndexedDB.`,
+      totalCached: cached.length,
+      lastSyncAt: meta.lastSyncAt,
+    };
+  }
+
+  // 3. Если кэш пуст (первый запуск в оффлайн-режиме), наполняем начальными данными
+  await saveCachedVacancies(initialVacancies);
+  return {
+    vacancies: initialVacancies,
+    source: 'fallback',
+    isBackendOnline: false,
+    warning: 'Кэш пуст, связь с бэкендом отсутствует. Загружены базовые демонстрационные вакансии.',
+    totalCached: initialVacancies.length,
+    lastSyncAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Запуск сбора вакансий на бэкенде через Playwright
+ */
+export async function triggerBackendScanJob(
+  apiUrl: string = DEFAULT_BACKEND_URL,
+  options: { maxPages?: number; sync?: boolean } = { maxPages: 2, sync: true }
+): Promise<{ ok: boolean; scanned: number; durationMs?: number; message?: string }> {
+  const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+
+  const res = await fetch(`${clean}/api/scan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sync: options.sync ?? true, maxPages: options.maxPages ?? 2 }),
+  });
+
+  if (res.status === 409) {
+    return {
+      ok: false,
+      scanned: 0,
+      message: 'Сканирование уже выполняется на сервере другим процессом или cron-задачей. Пожалуйста, подождите.',
+    };
+  }
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => res.statusText);
+    throw new Error(`Ошибка запуска сканера на сервере (${res.status}): ${errorText}`);
+  }
+
+  const data = await res.json();
+  return {
+    ok: true,
+    scanned: data.scanned ?? 0,
+    durationMs: data.durationMs,
+    message: data.message,
+  };
+}
+
+/**
+ * Синхронизация изменения статуса / отклика вакансии:
+ * Сначала сохраняется в IndexedDB (мгновенный UI отклик), затем отправляется на бэкенд.
+ * Если бэкенд оффлайн — встает в очередь pending_sync.
+ */
+export async function syncVacancyUpdate(
+  apiUrl: string = DEFAULT_BACKEND_URL,
+  id: string,
+  updates: { status?: VacancyStatus; outcome?: VacancyOutcome; pitch?: string }
+): Promise<void> {
+  // Мгновенно обновляем IndexedDB
+  await updateCachedVacancy(id, updates);
+
+  const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+  if (!clean) return;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+    const res = await fetch(`${clean}/api/vacancies/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: updates.status, outcome: updates.outcome }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      await queuePendingSync({
+        id,
+        status: updates.status,
+        outcome: updates.outcome,
+        timestamp: Date.now(),
+      });
+    }
+  } catch {
+    // В случае сбоя сети сохраняем в очередь для отправки при восстановлении
+    await queuePendingSync({
+      id,
+      status: updates.status,
+      outcome: updates.outcome,
+      timestamp: Date.now(),
+    });
+  }
+}

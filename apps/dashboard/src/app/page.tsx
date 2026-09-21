@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Navbar } from '../components/Navbar';
 import { FilterBar } from '../components/FilterBar';
 import { VacancyCard } from '../components/VacancyCard';
@@ -12,7 +12,14 @@ import { ApiSettingsModal } from '../components/ApiSettingsModal';
 import { PWAInstallPrompt } from '../components/PWAInstallPrompt';
 import { MobileBottomNav } from '../components/MobileBottomNav';
 import { initialVacancies, initialProfile, defaultScoringRules } from '../data/mockData';
-import { fetchLiveHhVacancies } from '../services/hhService';
+import {
+  loadVacanciesWithCache,
+  triggerBackendScanJob,
+  syncVacancyUpdate,
+  checkBackendStatus,
+  DEFAULT_BACKEND_URL,
+} from '../services/backendService';
+import { getCachedVacancies, getCacheMeta } from '../services/indexedDbStorage';
 import {
   Vacancy,
   FilterState,
@@ -21,7 +28,7 @@ import {
   DeveloperProfile,
   KeywordScoringRule,
 } from '../types';
-import { Sparkles, RefreshCw, AlertCircle, CheckCircle2, ChevronRight, Server, Settings } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertCircle, CheckCircle2, ChevronRight, Server, Database, HardDrive } from 'lucide-react';
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<'vacancies' | 'stats' | 'profile' | 'plan'>('vacancies');
@@ -36,6 +43,9 @@ export default function DashboardPage() {
   const [apiUrl, setApiUrl] = useState<string>('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [backendOnline, setBackendOnline] = useState<boolean | undefined>(undefined);
+  const [dataSource, setDataSource] = useState<'backend' | 'cache' | 'fallback'>('cache');
+  const [cacheCount, setCacheCount] = useState<number>(0);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
   const [backendMeta, setBackendMeta] = useState<{
     database?: string;
@@ -45,65 +55,72 @@ export default function DashboardPage() {
     lastScanAt?: string;
   }>({});
 
+  const refreshData = useCallback(async (targetUrl?: string) => {
+    const url = targetUrl || apiUrl || DEFAULT_BACKEND_URL;
+    
+    // 1. Проверяем доступность бэкенда Fastify + Neon DB
+    const status = await checkBackendStatus(url);
+    setBackendOnline(status.ok);
+    if (status.ok && status.data) {
+      setBackendMeta({
+        database: status.data.database,
+        dbLatencyMs: status.data.dbLatencyMs,
+        totalOrders: status.data.totalOrders,
+        isScanning: status.data.scanner?.isScanning,
+        lastScanAt: status.data.scanner?.lastScanAt || undefined,
+      });
+    }
+
+    // 2. Загружаем вакансии через бэкенд с автоматическим кэшированием в IndexedDB
+    const result = await loadVacanciesWithCache(url);
+    if (result.vacancies.length > 0) {
+      setVacancies(result.vacancies);
+    }
+    setDataSource(result.source);
+    if (result.totalCached) setCacheCount(result.totalCached);
+    if (result.lastSyncAt) setLastSyncTime(result.lastSyncAt);
+
+    if (result.warning && result.source === 'cache') {
+      setScanMessage(result.warning);
+      setTimeout(() => setScanMessage(null), 7000);
+    }
+  }, [apiUrl]);
+
   useEffect(() => {
-    // Read initial URL from env or localStorage
+    let isMounted = true;
+
+    // 1. Мгновенная гидратация из локального кэша IndexedDB (0 миллисекунд ожидания)
+    getCachedVacancies().then((cached) => {
+      if (isMounted && cached.length > 0) {
+        setVacancies(cached);
+        setCacheCount(cached.length);
+        setDataSource('cache');
+      }
+    });
+
+    getCacheMeta().then((meta) => {
+      if (isMounted && meta.lastSyncAt) {
+        setLastSyncTime(meta.lastSyncAt);
+      }
+    });
+
+    // 2. Читаем сохраненный URL и запускаем фоновую синхронизацию с бэкендом
     const saved = localStorage.getItem('scan_agent_api_url');
-    const defaultUrl = process.env.NEXT_PUBLIC_API_URL || 'https://scan-agent-api.onrender.com';
+    const defaultUrl = process.env.NEXT_PUBLIC_API_URL || DEFAULT_BACKEND_URL;
     const effectiveUrl = saved !== null ? saved : defaultUrl;
     setApiUrl(effectiveUrl);
 
-    if (effectiveUrl) {
-      checkBackendHealth(effectiveUrl);
-    }
-  }, []);
+    refreshData(effectiveUrl);
 
-  const checkBackendHealth = async (url: string) => {
-    const clean = url.trim().replace(/\/$/, '');
-    if (!clean) {
-      setBackendOnline(false);
-      return;
-    }
-    try {
-      const res = await fetch(`${clean}/api/health`, { method: 'GET' });
-      if (res.ok) {
-        const data = await res.json();
-        setBackendOnline(true);
-        setBackendMeta({
-          database: data.database,
-          dbLatencyMs: data.dbLatencyMs,
-          totalOrders: data.totalOrders,
-          isScanning: data.scanner?.isScanning,
-          lastScanAt: data.scanner?.lastScanAt,
-        });
-
-        // Загружаем актуальные вакансии из базы данных Neon
-        try {
-          const vacRes = await fetch(`${clean}/api/vacancies?limit=100`);
-          if (vacRes.ok) {
-            const dbVacancies = await vacRes.json();
-            if (Array.isArray(dbVacancies) && dbVacancies.length > 0) {
-              setVacancies(dbVacancies);
-            }
-          }
-        } catch {
-          // тихо продолжаем со стандартными
-        }
-      } else {
-        setBackendOnline(false);
-      }
-    } catch {
-      setBackendOnline(false);
-    }
-  };
+    return () => {
+      isMounted = false;
+    };
+  }, [refreshData]);
 
   const handleSaveApiUrl = (newUrl: string) => {
     setApiUrl(newUrl);
     localStorage.setItem('scan_agent_api_url', newUrl);
-    if (newUrl) {
-      checkBackendHealth(newUrl);
-    } else {
-      setBackendOnline(false);
-    }
+    refreshData(newUrl);
   };
 
   const [filters, setFilters] = useState<FilterState>({
@@ -164,6 +181,7 @@ export default function DashboardPage() {
     };
   }, [filteredVacancies]);
 
+  // Обработка изменения статуса с сохранением в IndexedDB и отправкой на бэкенд
   const handleStatusChange = async (id: string, newStatus: VacancyStatus) => {
     setVacancies((prev) =>
       prev.map((v) =>
@@ -177,106 +195,56 @@ export default function DashboardPage() {
       )
     );
 
-    // Sync to backend if configured
-    if (apiUrl && backendOnline) {
-      try {
-        await fetch(`${apiUrl.replace(/\/$/, '')}/api/vacancies/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: newStatus }),
-        });
-      } catch (err) {
-        console.warn('Could not sync status with backend:', err);
-      }
-    }
+    await syncVacancyUpdate(apiUrl || DEFAULT_BACKEND_URL, id, { status: newStatus });
   };
 
+  // Обработка изменения исхода отклика
   const handleOutcomeChange = async (id: string, newOutcome: VacancyOutcome) => {
     setVacancies((prev) =>
       prev.map((v) => (v.id === id ? { ...v, outcome: newOutcome } : v))
     );
 
-    if (apiUrl && backendOnline) {
-      try {
-        await fetch(`${apiUrl.replace(/\/$/, '')}/api/vacancies/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ outcome: newOutcome }),
-        });
-      } catch (err) {
-        console.warn('Could not sync outcome with backend:', err);
-      }
-    }
+    await syncVacancyUpdate(apiUrl || DEFAULT_BACKEND_URL, id, { outcome: newOutcome });
   };
 
-  const handleUpdatePitch = (id: string, newPitch: string) => {
+  const handleUpdatePitch = async (id: string, newPitch: string) => {
     setVacancies((prev) =>
       prev.map((v) => (v.id === id ? { ...v, pitch: newPitch } : v))
     );
     if (selectedVacancy && selectedVacancy.id === id) {
       setSelectedVacancy((prev) => (prev ? { ...prev, pitch: newPitch } : null));
     }
+    await syncVacancyUpdate(apiUrl || DEFAULT_BACKEND_URL, id, { pitch: newPitch });
   };
 
+  // Запуск сбора вакансий через бэкенд
   const handleTriggerScan = async () => {
     setIsScanning(true);
-    setScanMessage('Запуск сбора вакансий через Playwright на бэкенде (обход 403)...');
+    setScanMessage('Запуск сбора вакансий через Playwright на сервере (без 403 ошибок)...');
 
     try {
-      if (apiUrl && backendOnline) {
-        const clean = apiUrl.trim().replace(/\/$/, '');
-        const res = await fetch(`${clean}/api/scan`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sync: true, maxPages: 2 }),
-        });
-
-        if (res.ok) {
-          const scanData = await res.json();
-          // Мгновенно запрашиваем обновленный список вакансий из базы Neon
-          const vacRes = await fetch(`${clean}/api/vacancies?limit=100`);
-          if (vacRes.ok) {
-            const dbVacancies = await vacRes.json();
-            if (Array.isArray(dbVacancies) && dbVacancies.length > 0) {
-              setVacancies(dbVacancies);
-            }
-          }
-          const count = scanData.scanned !== undefined ? scanData.scanned : 0;
-          setScanMessage(`Сбор через Playwright завершён: найдено ${count} релевантных вакансий, данные обновлены в Neon.`);
-          setTimeout(() => setScanMessage(null), 5000);
-          return;
-        } else if (res.status === 409) {
-          setScanMessage('Сбор уже выполняется другим процессом/cron-задачей. Ожидайте...');
-          setTimeout(() => setScanMessage(null), 4000);
-          return;
-        }
-      }
-
-      // Резервный клиентский поиск при отсутствии соединения с бэкендом
-      const scanResult = await fetchLiveHhVacancies(
-        'TypeScript OR React OR Node.js OR Next.js',
-        true,
-        scoringRules
-      );
-
-      const liveItems = scanResult.vacancies;
-
-      setVacancies((prev) => {
-        const existingIds = new Set(prev.map((p) => p.orderId));
-        const newItems = liveItems.filter((item) => !existingIds.has(item.orderId));
-        return [...newItems, ...prev];
+      const scanResult = await triggerBackendScanJob(apiUrl || DEFAULT_BACKEND_URL, {
+        maxPages: 2,
+        sync: true,
       });
 
-      if (scanResult.warning) {
-        setScanMessage(scanResult.warning);
-        setTimeout(() => setScanMessage(null), 8000);
-      } else {
-        setScanMessage(`Успешно получено ${liveItems.length} вакансий`);
+      if (!scanResult.ok) {
+        setScanMessage(scanResult.message || 'Сбор уже выполняется другим процессом.');
         setTimeout(() => setScanMessage(null), 4000);
+        return;
       }
+
+      // После завершения сбора обновляем список вакансий и локальный кэш IndexedDB
+      await refreshData();
+
+      setScanMessage(
+        `Сбор через Playwright завершён: найдено ${scanResult.scanned} вакансий, данные сохранены в БД Neon и кэшированы в IndexedDB.`
+      );
+      setTimeout(() => setScanMessage(null), 6000);
     } catch (err: any) {
-      setScanMessage(`Ошибка сканирования: ${err.message || 'Не удалось выполнить сбор'}`);
-      setTimeout(() => setScanMessage(null), 5000);
+      console.warn('Ошибка сбора через бэкенд:', err);
+      setScanMessage(`Бэкенд недоступен или засыпает: ${err.message || 'Повторите попытку через пару секунд'}`);
+      setTimeout(() => setScanMessage(null), 6000);
     } finally {
       setIsScanning(false);
     }
@@ -304,21 +272,21 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Backend Banner if offline */}
-      {backendOnline === false && apiUrl && (
-        <div className="bg-gray-900/90 border-b border-gray-800 px-4 py-2 text-xs text-gray-300">
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
+      {/* Backend Banner if offline / using cache */}
+      {backendOnline === false && (
+        <div className="bg-gray-900/90 border-b border-gray-800 px-4 py-2.5 text-xs text-gray-300">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <Server className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+              <HardDrive className="w-4 h-4 text-cyan-400 flex-shrink-0" />
               <span>
-                Бэкенд Fastify (<code className="text-rose-300 font-mono text-[11px]">{apiUrl}</code>) недоступен. Работа в автономном режиме клиентского HH API.
+                Бэкенд на Render просыпается или недоступен. Работа в автономном режиме: отображается <strong>{cacheCount || vacancies.length}</strong> вакансий из локального кэша IndexedDB.
               </span>
             </div>
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="text-[11px] text-rose-400 hover:text-rose-300 underline font-medium"
+              className="text-[11px] text-cyan-400 hover:text-cyan-300 underline font-medium shrink-0"
             >
-              Настроить API
+              Параметры кэша ⚙️
             </button>
           </div>
         </div>
@@ -343,9 +311,9 @@ export default function DashboardPage() {
                   <AlertCircle className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-base font-semibold text-white">Нет вакансий по заданным фильтрам</h3>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Попробуйте снизить минимальный порог соответствия или сбросить поисковый запрос.
+                  <h3 className="text-base font-semibold text-white">Нет подходящих вакансий</h3>
+                  <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
+                    Попробуйте снизить минимальный порог скоринга или сбросить фильтр по стеку технологий.
                   </p>
                 </div>
                 <button
@@ -360,21 +328,31 @@ export default function DashboardPage() {
                       experienceLevel: 'all',
                     })
                   }
-                  className="px-4 py-2 text-xs font-medium rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 transition"
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium rounded-xl border border-gray-700 transition"
                 >
                   Сбросить фильтры
                 </button>
               </div>
             ) : (
               <div className="space-y-8">
+                {/* 1. New / Relevant Vacancies */}
                 {groupedVacancies.new.length > 0 && (
                   <section className="space-y-3">
-                    <div className="flex items-center gap-2 pb-1 border-b border-gray-800">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
-                      <h2 className="text-sm font-bold uppercase tracking-wider text-gray-200">
-                        Новые предложения ({groupedVacancies.new.length})
-                      </h2>
+                    <div className="flex items-center justify-between px-1">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                        <h2 className="text-sm sm:text-base font-semibold text-white tracking-tight">
+                          Новые предложения
+                        </h2>
+                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                          {groupedVacancies.new.length}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-gray-400 hidden sm:inline">
+                        Прошли фильтрацию по вашему стеку резюме
+                      </span>
                     </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {groupedVacancies.new.map((vacancy) => (
                         <VacancyCard
@@ -389,14 +367,24 @@ export default function DashboardPage() {
                   </section>
                 )}
 
+                {/* 2. Applied Vacancies */}
                 {groupedVacancies.applied.length > 0 && (
-                  <section className="space-y-3">
-                    <div className="flex items-center gap-2 pb-1 border-b border-gray-800">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                      <h2 className="text-sm font-bold uppercase tracking-wider text-gray-200">
-                        Отклики отправлены ({groupedVacancies.applied.length})
-                      </h2>
+                  <section className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between px-1">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                        <h2 className="text-sm sm:text-base font-semibold text-white tracking-tight">
+                          Отклики в работе
+                        </h2>
+                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          {groupedVacancies.applied.length}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-gray-400 hidden sm:inline">
+                        Ожидают ответа работодателя или приглашения
+                      </span>
                     </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {groupedVacancies.applied.map((vacancy) => (
                         <VacancyCard
@@ -411,15 +399,25 @@ export default function DashboardPage() {
                   </section>
                 )}
 
+                {/* 3. Skipped Vacancies */}
                 {groupedVacancies.skipped.length > 0 && (
-                  <section className="space-y-3">
-                    <div className="flex items-center gap-2 pb-1 border-b border-gray-800">
-                      <span className="w-2.5 h-2.5 rounded-full bg-gray-500" />
-                      <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400">
-                        Архив и пропущенные ({groupedVacancies.skipped.length})
-                      </h2>
+                  <section className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between px-1">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-gray-500" />
+                        <h2 className="text-sm sm:text-base font-semibold text-gray-300 tracking-tight">
+                          Пропущенные / Отклонённые
+                        </h2>
+                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-800 text-gray-400 border border-gray-700">
+                          {groupedVacancies.skipped.length}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-gray-500 hidden sm:inline">
+                        Не подошли по условиям или технологиям
+                      </span>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-75 hover:opacity-100 transition-opacity">
                       {groupedVacancies.skipped.map((vacancy) => (
                         <VacancyCard
                           key={vacancy.id}
@@ -444,29 +442,34 @@ export default function DashboardPage() {
             profile={profile}
             onUpdateProfile={setProfile}
             scoringRules={scoringRules}
-            onUpdateRules={setScoringRules}
+            onUpdateScoringRules={setScoringRules}
           />
         )}
 
         {activeTab === 'plan' && <ArchitecturePlanView />}
       </main>
 
-      {/* Vacancy Details & Pitch Generator Modal */}
-      <VacancyDetailsModal
-        vacancy={selectedVacancy}
-        onClose={() => setSelectedVacancy(null)}
-        onUpdatePitch={handleUpdatePitch}
-      />
+      {/* Modal for Vacancy Full Details & Pitch generation */}
+      {selectedVacancy && (
+        <VacancyDetailsModal
+          vacancy={selectedVacancy}
+          onClose={() => setSelectedVacancy(null)}
+          onStatusChange={handleStatusChange}
+          onOutcomeChange={handleOutcomeChange}
+          onUpdatePitch={handleUpdatePitch}
+        />
+      )}
 
-      {/* Fastify Backend API Settings Modal */}
+      {/* Modal for API Configuration */}
       <ApiSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         apiUrl={apiUrl}
         onSaveApiUrl={handleSaveApiUrl}
+        onRefreshFromBackend={refreshData}
       />
 
-      {/* Mobile Bottom Navigation Bar */}
+      {/* Mobile Bottom Navigation Bar for PWA */}
       <MobileBottomNav
         activeTab={activeTab}
         setActiveTab={setActiveTab}

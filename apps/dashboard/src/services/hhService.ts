@@ -323,112 +323,29 @@ function generateFallbackVacancies(rules: KeywordScoringRule): Vacancy[] {
   });
 }
 
+import { loadVacanciesWithCache, DEFAULT_BACKEND_URL } from './backendService';
+
 /**
- * Запрос вакансий через публичный REST API HeadHunter и детерминированная фильтрация
+ * Запрос вакансий: прямое обращение к api.hh.ru полностью удалено.
+ * Данные поступают строго через наш бэкенд (Neon PostgreSQL) с кэшированием в IndexedDB.
+ * При недоступности бэкенда данные мгновенно отдаются из локального кэша.
  */
 export async function fetchLiveHhVacancies(
-  query: string = 'TypeScript OR React OR Node.js',
-  remoteOnly: boolean = true,
-  rules: KeywordScoringRule,
-  customToken?: string
+  _query?: string,
+  _remoteOnly?: boolean,
+  _rules?: KeywordScoringRule,
+  _customToken?: string
 ): Promise<FetchVacanciesResult> {
-  const params = new URLSearchParams();
-  params.set('text', query);
-  params.set('per_page', '20');
-  params.set('order_by', 'publication_time');
-  if (remoteOnly) {
-    params.set('schedule', 'remote');
-  }
+  const apiUrl =
+    (typeof window !== 'undefined' ? localStorage.getItem('scan_agent_api_url') || '' : '') ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    DEFAULT_BACKEND_URL;
 
-  const url = `https://api.hh.ru/vacancies?${params.toString()}`;
-  const token =
-    customToken ||
-    (typeof window !== 'undefined' ? localStorage.getItem('hh_access_token') || '' : '');
+  const result = await loadVacanciesWithCache(apiUrl);
 
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
+  return {
+    vacancies: result.vacancies,
+    warning: result.warning,
+    isAuthRequired: false,
   };
-  if (token.trim()) {
-    headers['Authorization'] = `Bearer ${token.trim()}`;
-  }
-
-  try {
-    const res = await fetch(url, { headers });
-
-    if (res.status === 403) {
-      console.warn('HH API вернул статус 403: HeadHunter требует OAuth access_token для публичного поиска вакансий.');
-      const fallbackVacancies = generateFallbackVacancies(rules);
-      return {
-        vacancies: fallbackVacancies,
-        warning:
-          'HH API вернул статус 403 (HeadHunter закрыл публичный доступ без OAuth-токена). Загружены актуальные вакансии по вашему стеку резюме. Вы можете указать OAuth-токен HH или URL бэкенда в Настройках ⚙️.',
-        isAuthRequired: true,
-      };
-    }
-
-    if (!res.ok) {
-      console.warn(`HH API returned ${res.status}: ${res.statusText}`);
-      const fallbackVacancies = generateFallbackVacancies(rules);
-      return {
-        vacancies: fallbackVacancies,
-        warning: `HH API вернул статус ${res.status}. Загружены актуальные предложения по стеку резюме.`,
-      };
-    }
-
-    const data = await res.json();
-    const items: HhApiItem[] = data.items || [];
-
-    const vacancies: Vacancy[] = items.map((item) => {
-      const title = item.name || 'Без названия';
-      const reqSnippet = stripHtml(item.snippet?.requirement);
-      const respSnippet = stripHtml(item.snippet?.responsibility);
-      const fullDesc = `${reqSnippet} ${respSnippet}`.trim();
-
-      const evaluation = evaluateKeywords(title, fullDesc, rules);
-      const pitches = generatePitchForVacancy(title, evaluation.matchedKeywords);
-
-      const isRemote = item.schedule?.id === 'remote' || title.toLowerCase().includes('удален');
-      const salaryNum = parseSalaryNumber(item.salary);
-
-      const meetsFilter = !evaluation.isExcluded && evaluation.score >= rules.minScore;
-
-      return {
-        id: `hh-${item.id}`,
-        orderId: item.id,
-        source: 'hh',
-        title,
-        description: fullDesc || 'Подробное описание требований доступно на официальной странице HeadHunter.',
-        price: formatSalary(item.salary),
-        salaryNum,
-        link: item.alternate_url || `https://hh.ru/vacancy/${item.id}`,
-        employer: item.employer?.name || 'Компания не указана',
-        city: item.area?.name || (isRemote ? 'Удаленно' : 'Не указан'),
-        isRemote,
-        score: evaluation.score,
-        keywordScore: evaluation.keywordScore,
-        matchPercentage: evaluation.matchPercentage,
-        matchedKeywords: evaluation.matchedKeywords,
-        missingKeywords: evaluation.missingKeywords,
-        filterVerdict: evaluation.filterVerdict,
-        hook: pitches.hook,
-        pitch: pitches.pitch,
-        tags: evaluation.matchedKeywords,
-        status: meetsFilter ? 'new' : 'skipped',
-        outcome: 'pending',
-        publishedAt: item.published_at || new Date().toISOString(),
-        processedAt: new Date().toISOString(),
-        experienceRequirement: item.experience?.name,
-        schedule: item.schedule?.name,
-      };
-    });
-
-    return { vacancies };
-  } catch (error: any) {
-    console.warn('Сетевой сбой при обращении к HH API:', error);
-    const fallbackVacancies = generateFallbackVacancies(rules);
-    return {
-      vacancies: fallbackVacancies,
-      warning: `Сетевой сбой при обращении к HH API (${error.message || 'Офлайн / CORS'}). Загружены актуальные предложения по стеку резюме.`,
-    };
-  }
 }
