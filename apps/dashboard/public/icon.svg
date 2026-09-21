@@ -1,11 +1,87 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#e11d48"/>
+    <!-- Background Gradient: Deep Slate & Carbon -->
+    <radialGradient id="bgGrad" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#141d30"/>
+      <stop offset="45%" stop-color="#0a0f1e"/>
+      <stop offset="100%" stop-color="#030712"/>
+    </radialGradient>
+
+    <!-- Radar Sweep Beam Gradient -->
+    <linearGradient id="sweepGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.22"/>
+      <stop offset="60%" stop-color="#06b6d4" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Central HH Badge: Rich Electric Crimson to Ruby -->
+    <linearGradient id="badgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff1a53"/>
+      <stop offset="50%" stop-color="#e11d48"/>
       <stop offset="100%" stop-color="#9f1239"/>
     </linearGradient>
+
+    <!-- Glowing Accent Ring Gradient -->
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.85"/>
+      <stop offset="50%" stop-color="#06b6d4" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0.85"/>
+    </linearGradient>
+
+    <!-- Soft Depth Shadow for Emblem -->
+    <filter id="badgeShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#e11d48" flood-opacity="0.4"/>
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.75"/>
+    </filter>
+
+    <!-- Neon Glow for Active Agent Beacon -->
+    <filter id="beaconGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="0" stdDeviation="7" flood-color="#10b981" flood-opacity="0.95"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="12" flood-color="#10b981" flood-opacity="0.4"/>
+    </filter>
   </defs>
-  <rect width="512" height="512" rx="128" fill="url(#grad)"/>
-  <text x="256" y="320" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="210" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="4">HH</text>
-  <circle cx="390" cy="130" r="32" fill="#10b981"/>
+
+  <!-- 1. Full-Bleed Dark Theme Background (100% safe on any Android mask: squircle, circle, teardrop) -->
+  <rect width="512" height="512" fill="url(#bgGrad)"/>
+
+  <!-- 2. Concentric Radar Rings (Centered at 256, 256) -->
+  <circle cx="256" cy="256" r="186" fill="none" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="8 8"/>
+  <circle cx="256" cy="256" r="148" fill="none" stroke="#334155" stroke-width="1.5" stroke-opacity="0.6"/>
+  <circle cx="256" cy="256" r="112" fill="none" stroke="#06b6d4" stroke-width="1.5" stroke-opacity="0.35"/>
+
+  <!-- 3. Radar Crosshair Ticks -->
+  <line x1="64" y1="256" x2="114" y2="256" stroke="#06b6d4" stroke-width="2" stroke-opacity="0.4" stroke-linecap="round"/>
+  <line x1="398" y1="256" x2="448" y2="256" stroke="#06b6d4" stroke-width="2" stroke-opacity="0.4" stroke-linecap="round"/>
+  <line x1="256" y1="64" x2="256" y2="114" stroke="#06b6d4" stroke-width="2" stroke-opacity="0.4" stroke-linecap="round"/>
+  <line x1="256" y1="398" x2="256" y2="448" stroke="#06b6d4" stroke-width="2" stroke-opacity="0.4" stroke-linecap="round"/>
+
+  <!-- 4. Radar Sweep Cone -->
+  <path d="M 256 256 L 387 125 A 186 186 0 0 0 256 70 Z" fill="url(#sweepGrad)"/>
+
+  <!-- 5. Glowing Outer Tech Ring -->
+  <circle cx="256" cy="256" r="116" fill="none" stroke="url(#ringGrad)" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- 6. Central Brand Badge (Radius 96, perfectly centered within safe zone) -->
+  <circle cx="256" cy="256" r="96" fill="url(#badgeGrad)" filter="url(#badgeShadow)"/>
+  <circle cx="256" cy="256" r="94" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-opacity="0.3"/>
+
+  <!-- 7. Bold Crisp 'hh' Monogram Vector (No system font dependency, guaranteed rendering) -->
+  <g fill="#ffffff">
+    <!-- First 'h' -->
+    <path d="M 188 196 C 188 192.5 191 189.5 195 189.5 L 206 189.5 C 210 189.5 213 192.5 213 196 L 213 241 C 219 234 227.5 230 237.5 230 C 251.5 230 260 239.5 260 255.5 L 260 312 C 260 315.5 257 318.5 253.5 318.5 L 243 318.5 C 239.5 318.5 236.5 315.5 236.5 312 L 236.5 261 C 236.5 252 232 247.5 224 247.5 C 218 247.5 213 252 213 258 L 213 312 C 213 315.5 210 318.5 206 318.5 L 195 318.5 C 191 318.5 188 315.5 188 312 Z"/>
+
+    <!-- Second 'h' -->
+    <path d="M 267 196 C 267 192.5 270 189.5 274 189.5 L 285 189.5 C 289 189.5 292 192.5 292 196 L 292 241 C 298 234 306.5 230 316.5 230 C 330.5 230 339 239.5 339 255.5 L 339 312 C 339 315.5 336 318.5 332.5 318.5 L 322 318.5 C 318.5 318.5 315.5 315.5 315.5 312 L 315.5 261 C 315.5 252 311 247.5 303 247.5 C 297 247.5 292 252 292 258 L 292 312 C 292 315.5 289 318.5 285 318.5 L 274 318.5 C 270 318.5 267 315.5 267 312 Z"/>
+  </g>
+
+  <!-- 8. High-Tech Corner Radar Markers (Aligned within safe zone r=185) -->
+  <path d="M 125 145 L 125 125 L 145 125" fill="none" stroke="#06b6d4" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.8"/>
+  <path d="M 387 145 L 387 125 L 367 125" fill="none" stroke="#06b6d4" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.8"/>
+  <path d="M 125 367 L 125 387 L 145 387" fill="none" stroke="#06b6d4" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.8"/>
+  <path d="M 387 367 L 387 387 L 367 387" fill="none" stroke="#06b6d4" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.8"/>
+
+  <!-- 9. Active AI Agent Scanning Beacon (Online status indicator) -->
+  <circle cx="334" cy="180" r="16" fill="#10b981" filter="url(#beaconGlow)"/>
+  <circle cx="334" cy="180" r="16" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+  <circle cx="334" cy="180" r="6" fill="#ffffff"/>
 </svg>

@@ -1,5 +1,5 @@
 // Service Worker for ScanAgent PWA with Push Notifications & Offline Cache
-const CACHE_NAME = 'scanagent-v2';
+const CACHE_NAME = 'scanagent-v3';
 const basePath = self.location.pathname.replace(/\/sw\.js$/, '') || '';
 
 const ASSETS_TO_CACHE = [
@@ -7,6 +7,7 @@ const ASSETS_TO_CACHE = [
   basePath + '/manifest.json',
   basePath + '/pwa-192x192.png',
   basePath + '/pwa-512x512.png',
+  basePath + '/pwa-maskable-512x512.png',
   basePath + '/apple-touch-icon.png',
   basePath + '/icon.svg'
 ];

@@ -12,6 +12,8 @@ interface NavbarProps {
   backendOnline?: boolean;
 }
 
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
@@ -27,9 +29,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center justify-between h-14 sm:h-16 gap-1.5 sm:gap-2">
           {/* Logo & Brand */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-red-600 to-rose-700 flex items-center justify-center shadow-lg shadow-rose-950/50 shrink-0">
-              <span className="text-white font-black text-sm sm:text-lg tracking-wider">HH</span>
-            </div>
+            <img
+              src={`${basePath}/icon.svg`}
+              alt="ScanAgent"
+              className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl shadow-lg shadow-rose-950/50 shrink-0 border border-rose-500/20"
+            />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <span className="text-sm sm:text-lg font-bold text-white tracking-tight truncate">ScanAgent</span>

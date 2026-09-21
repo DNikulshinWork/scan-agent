@@ -15,8 +15,14 @@ export const metadata: Metadata = {
   description: 'Мониторинг вакансий HH.ru на фильтрах резюме (Next.js 16, Fastify, Neon, GitHub Pages)',
   manifest: `${basePath}/manifest.json`,
   icons: {
-    icon: `${basePath}/icon.svg`,
-    apple: `${basePath}/apple-touch-icon.png`,
+    icon: [
+      { url: `${basePath}/icon.svg`, type: 'image/svg+xml' },
+      { url: `${basePath}/pwa-192x192.png`, sizes: '192x192', type: 'image/png' },
+      { url: `${basePath}/pwa-512x512.png`, sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [
+      { url: `${basePath}/apple-touch-icon.png`, sizes: '180x180', type: 'image/png' },
+    ],
   },
   appleWebApp: {
     capable: true,
