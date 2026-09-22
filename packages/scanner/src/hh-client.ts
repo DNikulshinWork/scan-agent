@@ -42,10 +42,10 @@ export async function runHhScannerJob(
     minScore: 3,
   };
 
-  // По умолчанию ищем вакансии для удаленной работы по релевантному стеку (Fullstack/Frontend, TS/React/Node/Next/Nest), отсортированные по дате
+  // По умолчанию ищем вакансии для удаленной работы по релевантному стеку (Fullstack/Frontend/Node/React/TypeScript), отсортированные по дате
   const defaultSearchUrl =
     process.env.HH_SEARCH_URL ||
-    'https://hh.ru/search/vacancy?text=%28NAME%3A%28fullstack%20OR%20%22full%20stack%22%20OR%20full-stack%20OR%20%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D1%87%D0%B8%D0%BA%29%29%20AND%20%28TypeScript%20OR%20React%20OR%20Node.js%20OR%20Next.js%20OR%20NestJS%29%20NOT%20%281%D0%A1%20OR%20%D0%91%D0%B8%D1%82%D1%80%D0%B8%D0%BA%D1%81%20OR%20WordPress%20OR%20%D0%A2%D0%B8%D0%BB%D1%8C%D0%B4%D0%B0%20OR%20%D1%82%D0%B5%D1%81%D1%82%D0%B8%D1%80%D0%BE%D0%B2%D1%89%D0%B8%D0%BA%20OR%20QA%29&employment=project&employment=full&employment=part&schedule=remote&order_by=publication_time&search_period=7';
+    'https://hh.ru/search/vacancy?text=TypeScript+OR+React+OR+Node.js+OR+Fullstack&schedule=remote&order_by=publication_time';
 
   const baseUrl = options.searchUrl || defaultSearchUrl;
   // Ограничиваем число страниц (по умолчанию 2) для быстрой работы (15-20 сек) и предотвращения лимитов
@@ -69,89 +69,94 @@ export async function runHhScannerJob(
           timeout: 25_000,
         });
 
-        // Проверяем наличие карточек вакансий в выдаче (поддерживаем оба варианта селекторов HH)
+        // Даем секунду на первичное монтирование скриптов
+        await page.waitForTimeout(1000);
+
+        // Проверяем наличие карточек вакансий или любых ссылок на вакансии
         const hasCards = await page
-          .waitForSelector('[data-qa="vacancy-serp__vacancy"], [data-qa="serp-item__title"]', {
-            timeout: 12_000,
+          .waitForSelector('a[href*="/vacancy/"], [data-qa="vacancy-serp__vacancy"], [data-qa="serp-item__title"]', {
+            timeout: 10_000,
           })
           .then(() => true)
           .catch(() => false);
 
         if (!hasCards) {
-          console.log(`[HH Playwright] На странице ${pageNum + 1} вакансий не обнаружено или достигнут конец выдачи.`);
+          const pageTitle = await page.title().catch(() => '');
+          console.log(`[HH Playwright] На странице ${pageNum + 1} вакансий не обнаружено (title: "${pageTitle}").`);
           break;
         }
 
-        const vacanciesOnPage = await page.$$eval(
-          '[data-qa="vacancy-serp__vacancy"], [data-qa="serp-item__title"]',
-          (elements): (RawHhVacancy | null)[] => {
-            return elements.map((el) => {
-              // Если элемент сам является ссылкой или заголовком serp-item__title, находим его родительскую карточку
-              const card = (el.matches('[data-qa="vacancy-serp__vacancy"]')
-                ? el
-                : el.closest('[data-qa="vacancy-serp__vacancy"]') || el.closest('div[class*="vacancy-card"]') || el.closest('div[data-qa*="vacancy"]') || el.parentElement?.parentElement) as HTMLElement | null;
+        const vacanciesOnPage = await page.evaluate((): (RawHhVacancy | null)[] => {
+          // Ищем все ссылки на вакансии на странице
+          const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/vacancy/"]'));
+          const seenIds = new Set<string>();
+          const results: (RawHhVacancy | null)[] = [];
 
-              if (!card) return null;
+          for (const linkEl of links) {
+            const rawHref = linkEl.href || '';
+            const link = rawHref.split('?')[0];
+            const idMatch = link.match(/\/vacancy\/(\d+)/);
+            const id = idMatch?.[1];
+            if (!id || seenIds.has(id)) continue;
 
-              const linkEl = (card.querySelector(
-                '[data-qa="serp-item__title"]'
-              ) || card.querySelector('a[href*="/vacancy/"]') || el.querySelector('a[href*="/vacancy/"]') || (el.tagName === 'A' ? el : null)) as HTMLAnchorElement | null;
+            // Находим родительский контейнер карточки
+            const card = (linkEl.closest('[data-qa="vacancy-serp__vacancy"]') ||
+              linkEl.closest('div[data-qa*="vacancy"]') ||
+              linkEl.closest('div[class*="vacancy-card"]') ||
+              linkEl.closest('div[class*="serp-item"]') ||
+              linkEl.parentElement?.parentElement?.parentElement) as HTMLElement | null;
 
-              const rawHref = linkEl?.href || '';
-              const link = rawHref.split('?')[0];
-              if (!link) return null;
+            // Заголовок вакансии
+            const title =
+              linkEl.textContent?.trim() ||
+              card?.querySelector('[data-qa*="title"]')?.textContent?.trim() ||
+              '';
 
-              const idMatch = link.match(/vacancy\/(\d+)/);
-              const id = idMatch?.[1] || null;
-              if (!id) return null;
+            // Пропускаем служебные ссылки без внятного заголовка
+            if (!title || title.length < 3 || /^(отклик|показать|подробнее|вакансия)/i.test(title)) {
+              continue;
+            }
 
-              const titleEl =
-                card.querySelector('[data-qa="serp-item__title-text"]') ||
-                card.querySelector('[data-qa="serp-item__title"]') ||
-                linkEl;
-              const title = titleEl?.textContent?.trim() || '';
-              if (!title) return null;
+            seenIds.add(id);
 
-              // Парсинг вилки зарплаты
-              let price = 'Не указана';
-              let salaryNum: number | null = null;
-              for (const span of card.querySelectorAll('span')) {
-                const t = span.textContent?.trim() || '';
-                if (/([\d\s]+[₽$€]|от\s*\d|до\s*\d)/i.test(t) && t.length < 80) {
-                  price = t.replace(/\s+/g, ' ');
-                  const cleanedDigits = price.replace(/\s+/g, '').match(/\d+/);
-                  if (cleanedDigits) salaryNum = parseInt(cleanedDigits[0], 10);
+            // Зарплата
+            let price = 'Договорная';
+            let salaryNum: number | null = null;
+            if (card) {
+              const allSpans = Array.from(card.querySelectorAll('span'));
+              for (const span of allSpans) {
+                const text = span.textContent?.trim() || '';
+                if (/([\d\s]+[₽$€]|от\s*\d|до\s*\d)/i.test(text) && text.length < 80) {
+                  price = text.replace(/\s+/g, ' ');
+                  const digits = price.replace(/\s+/g, '').match(/\d+/);
+                  if (digits) salaryNum = parseInt(digits[0], 10);
                   break;
                 }
               }
+            }
 
-              // Работодатель
-              const employerEl = card.querySelector(
-                '[data-qa="vacancy-serp__vacancy-employer-text"], [data-qa="vacancy-serp__vacancy-employer"], [data-qa*="employer"]'
-              );
-              const employer = employerEl?.textContent?.trim() || 'Компания';
+            // Работодатель
+            const employer =
+              card?.querySelector('[data-qa*="employer"]')?.textContent?.trim() ||
+              card?.querySelector('a[href*="/employer/"]')?.textContent?.trim() ||
+              'Компания';
 
-              // Город / локация
-              const cityEl = card.querySelector(
-                '[data-qa="vacancy-serp__vacancy-address"], [data-qa="vacancy-serp__vacancy_address"], [data-qa*="address"]'
-              );
-              const city = cityEl?.textContent?.trim() || 'Удаленно';
+            // Город
+            const city =
+              card?.querySelector('[data-qa*="address"]')?.textContent?.trim() ||
+              card?.querySelector('[data-qa*="city"]')?.textContent?.trim() ||
+              'Удаленно';
 
-              // Стек, опыт и требования
-              const tagEls = card.querySelectorAll(
-                '[data-qa^="vacancy-label"], [data-qa^="vacancy-serp__vacancy-work-experience"], [data-qa="vacancy-serp__vacancy_snippet_requirement"], [data-qa*="snippet"]'
-              );
-              const tags = Array.from(tagEls)
-                .map((e) => e.textContent?.trim())
-                .filter(Boolean)
-                .join(' ');
+            // Требования и стек
+            const tagEls = card ? Array.from(card.querySelectorAll('[data-qa*="label"], [data-qa*="requirement"], [data-qa*="snippet"], [data-qa*="experience"]')) : [];
+            const tags = tagEls.map((e) => e.textContent?.trim()).filter(Boolean).join(' ');
+            const desc = tags || card?.textContent?.slice(0, 300)?.trim() || 'Описание вакансии на HH.ru';
 
-              const desc = tags || 'Требования и условия указаны в описании вакансии на HH.ru';
-
-              return { id, title, desc, price, salaryNum, link, employer, city };
-            });
+            results.push({ id, title, desc, price, salaryNum, link, employer, city });
           }
-        );
+
+          return results;
+        });
 
         const valid = vacanciesOnPage.filter((v): v is RawHhVacancy => v !== null);
         allRawVacancies.push(...valid);
