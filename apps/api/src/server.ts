@@ -45,6 +45,47 @@ await fastify.register(cors, {
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 });
 
+// ==========================================
+// Защита эндпоинтов по API-ключу (x-api-key / Bearer token)
+// ==========================================
+const API_SECRET_KEY = process.env.API_SECRET_KEY?.trim();
+
+if (API_SECRET_KEY) {
+  fastify.log.info('[Security] Защита API активна (API_SECRET_KEY установлен в переменных окружения).');
+} else {
+  fastify.log.warn('[Security] API_SECRET_KEY не установлен. API работает в открытом режиме.');
+}
+
+fastify.addHook('preHandler', async (req: FastifyRequest, reply: FastifyReply) => {
+  // Если API_SECRET_KEY не задан в переменных окружения — пропускаем запросы без блокировки
+  if (!API_SECRET_KEY) return;
+
+  const url = req.url.split('?')[0];
+
+  // Публичные эндпоинты (мониторинг, проверка здоровья, публичный VAPID-ключ и внешний cron со своим CRON_SECRET)
+  if (
+    url === '/health' ||
+    url === '/api/health' ||
+    url === '/api/scan/cron' ||
+    url === '/api/push/vapid-public-key'
+  ) {
+    return;
+  }
+
+  // Проверяем x-api-key или Authorization: Bearer <key>
+  const apiKeyHeader = req.headers['x-api-key'];
+  const authHeader = req.headers['authorization'];
+  const bearerToken = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
+  const providedKey = (typeof apiKeyHeader === 'string' ? apiKeyHeader.trim() : '') || bearerToken;
+
+  if (!providedKey || providedKey !== API_SECRET_KEY) {
+    return reply.status(401).send({
+      ok: false,
+      error: 'Unauthorized: Invalid or missing API Key. Provide valid x-api-key header or Authorization: Bearer <token>',
+    });
+  }
+});
+
 const defaultRules: KeywordScoringRule = {
   coreStack: ['TypeScript', 'React', 'Next.js', 'Node.js', 'Fastify', 'NestJS', 'PostgreSQL', 'Prisma'],
   relatedStack: ['Docker', 'Redis', 'WebSocket', 'Tailwind', 'Python', 'FastAPI'],
@@ -337,11 +378,12 @@ const handleCronTrigger = async (req: FastifyRequest, reply: FastifyReply) => {
   const query = req.query as { token?: string; pages?: string };
   const secret = process.env.CRON_SECRET;
 
-  // Опциональная проверка секретного токена
-  if (secret) {
-    const authHeader = req.headers['authorization'] || req.headers['x-cron-secret'];
-    const token = query.token || (typeof authHeader === 'string' ? authHeader.replace('Bearer ', '') : '');
-    if (token !== secret) {
+  // Опциональная проверка секретного токена (CRON_SECRET или API_SECRET_KEY)
+  const allowedSecret = secret || API_SECRET_KEY;
+  if (allowedSecret) {
+    const authHeader = req.headers['authorization'] || req.headers['x-cron-secret'] || req.headers['x-api-key'];
+    const token = query.token || (typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '');
+    if (token !== secret && token !== API_SECRET_KEY) {
       return reply.status(401).send({ ok: false, error: 'Unauthorized: Invalid cron secret' });
     }
   }
@@ -387,7 +429,7 @@ fastify.post('/api/scan/toggle', async (req: FastifyRequest) => {
 // ==========================================
 // Получение и редактирование вакансий
 // ==========================================
-fastify.get('/api/vacancies', async (req) => {
+fastify.get('/api/vacancies', async (req: any) => {
   const { status, minScore, limit } = req.query as {
     status?: string;
     minScore?: string;
@@ -414,7 +456,7 @@ fastify.get('/api/vacancies', async (req) => {
   }));
 });
 
-fastify.patch('/api/vacancies/:id', async (req) => {
+fastify.patch('/api/vacancies/:id', async (req: any) => {
   const { id } = req.params as { id: string };
   const { status, outcome } = req.body as { status?: string; outcome?: string };
 

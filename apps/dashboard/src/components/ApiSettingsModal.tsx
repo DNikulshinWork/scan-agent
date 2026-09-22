@@ -1,6 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Server, CheckCircle2, AlertCircle, RefreshCw, X, Database, Globe, Trash2, Cpu, HardDrive, Rocket } from 'lucide-react';
+import {
+  Settings,
+  Server,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
+  X,
+  Database,
+  Globe,
+  Trash2,
+  Cpu,
+  HardDrive,
+  Rocket,
+  Key,
+  ShieldCheck,
+  Copy,
+  Sparkles,
+  LogOut,
+  Check,
+  Radio,
+} from 'lucide-react';
 import { getCacheMeta, clearCachedVacancies } from '../services/indexedDbStorage';
+import { getStoredApiKey, setStoredApiKey } from '../services/backendService';
+import { generateApiKey, generateCronSecret, generateVapidKeyPair, formatEnvConfig } from '../utils/securityGenerators';
+import { getStoredAuthUser, logout, AuthUser } from '../services/authService';
 
 interface ApiSettingsModalProps {
   isOpen: boolean;
@@ -18,9 +41,19 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
   onRefreshFromBackend,
 }) => {
   const [inputUrl, setInputUrl] = useState(apiUrl);
+  const [apiKeyInput, setApiKeyInput] = useState(() => getStoredApiKey());
   const [testingStatus, setTestingStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [backendMeta, setBackendMeta] = useState<any>(null);
+
+  // Security generation states
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [generatedVapid, setGeneratedVapid] = useState<{ publicKey: string; privateKey: string } | null>(null);
+  const [generatedCron, setGeneratedCron] = useState<string>('');
+  const [isGeneratingVapid, setIsGeneratingVapid] = useState(false);
+
+  // Auth User
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredAuthUser());
 
   // Render Deploy Hook State
   const [deployHookUrl, setDeployHookUrl] = useState(() => {
@@ -29,6 +62,51 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
   const [deployStatus, setDeployStatus] = useState<'idle' | 'deploying' | 'success' | 'error'>('idle');
   const [deployFeedback, setDeployFeedback] = useState<string | null>(null);
 
+  const copyToClipboard = async (text: string, fieldName: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(fieldName);
+      setTimeout(() => setCopiedField(null), 3000);
+    } catch {
+      // fallback
+    }
+  };
+
+  const handleGenerateApiKey = () => {
+    const key = generateApiKey();
+    setApiKeyInput(key);
+    copyToClipboard(key, 'apiKey');
+  };
+
+  const handleGenerateCronSecret = () => {
+    const secret = generateCronSecret();
+    setGeneratedCron(secret);
+    copyToClipboard(secret, 'cron');
+  };
+
+  const handleGenerateVapid = async () => {
+    setIsGeneratingVapid(true);
+    try {
+      const keys = await generateVapidKeyPair();
+      setGeneratedVapid(keys);
+      copyToClipboard(`VAPID_PUBLIC_KEY="${keys.publicKey}"\nVAPID_PRIVATE_KEY="${keys.privateKey}"`, 'vapid');
+    } finally {
+      setIsGeneratingVapid(false);
+    }
+  };
+
+  const handleCopyEnvBlock = () => {
+    const envBlock = formatEnvConfig({
+      apiKey: apiKeyInput || 'your-production-api-secret-key-32chars',
+      cronSecret: generatedCron || 'your-production-cron-secret-key-123',
+      vapidPublicKey: generatedVapid?.publicKey || 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBKr3qBUYIHBQFLXYp5Nksh8U',
+      vapidPrivateKey: generatedVapid?.privateKey || 'your-production-vapid-private-key',
+      vapidSubject: 'mailto:d.nikulshin.dev@gmail.com',
+      renderHook: deployHookUrl || undefined,
+    });
+    copyToClipboard(envBlock, 'allEnv');
+  };
+
   const handleTriggerDeploy = async () => {
     const target = deployHookUrl.trim();
     if (!target) return;
@@ -36,15 +114,11 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
     setDeployStatus('deploying');
     setDeployFeedback('Отправка запроса на Render Deploy Hook...');
     try {
-      const res = await fetch(target, {
-        method: 'POST',
-      });
+      const res = await fetch(target, { method: 'POST' });
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
         setDeployStatus('success');
-        setDeployFeedback(
-          `Деплой успешно запущен на Render! ${data.deploy?.id ? `ID: ${data.deploy.id}` : ''}`
-        );
+        setDeployFeedback(`Деплой успешно запущен на Render! ${data.deploy?.id ? `ID: ${data.deploy.id}` : ''}`);
       } else {
         setDeployStatus('error');
         setDeployFeedback(`Render вернул HTTP ${res.status}`);
@@ -73,6 +147,8 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
 
   useEffect(() => {
     setInputUrl(apiUrl);
+    setApiKeyInput(getStoredApiKey());
+    setAuthUser(getStoredAuthUser());
     if (isOpen) {
       loadCacheInfo();
     }
@@ -94,9 +170,14 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 7000);
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      if (apiKeyInput.trim()) {
+        headers['x-api-key'] = apiKeyInput.trim();
+      }
+
       const res = await fetch(`${target}/api/health`, {
         signal: controller.signal,
-        headers: { Accept: 'application/json' },
+        headers,
       });
       clearTimeout(timeoutId);
 
@@ -135,15 +216,21 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
     }
   };
 
+  const handleLogout = () => {
+    logout();
+    window.location.reload();
+  };
+
   const handleSave = () => {
     const cleanUrl = inputUrl.trim().replace(/\/$/, '');
     onSaveApiUrl(cleanUrl);
+    setStoredApiKey(apiKeyInput.trim());
     onClose();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between p-4 sm:p-5 border-b border-gray-800 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -151,8 +238,8 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
               <Settings className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-white">Параметры источника данных</h3>
-              <p className="text-xs text-gray-400">Бэкенд Fastify + Neon DB и кэш IndexedDB</p>
+              <h3 className="text-base font-semibold text-white">Параметры безопасности и API</h3>
+              <p className="text-xs text-gray-400">Fastify + Neon DB, ключи доступа x-api-key и VAPID</p>
             </div>
           </div>
           <button
@@ -165,6 +252,37 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
 
         {/* Scrollable body */}
         <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
+          {/* Section: Active Session / RBAC */}
+          {authUser && (
+            <div className="p-3.5 bg-gray-950/80 rounded-xl border border-gray-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center font-bold text-xs border border-rose-500/30">
+                  {authUser.name ? authUser.name.charAt(0) : 'D'}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-200 flex items-center gap-1.5">
+                    <span>{authUser.name}</span>
+                    <span className="px-1.5 py-0.5 text-[9px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
+                      Администратор
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-gray-400 font-mono">
+                    {authUser.email || authUser.username || authUser.id}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="px-2.5 py-1.5 bg-gray-900 hover:bg-rose-950/40 text-gray-400 hover:text-rose-300 text-xs rounded-lg border border-gray-800 hover:border-rose-900/50 transition flex items-center gap-1.5"
+                title="Выйти из аккаунта и заблокировать дашборд"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Выйти</span>
+              </button>
+            </div>
+          )}
+
           {/* Section 1: Backend Fastify API URL */}
           <div className="space-y-2.5 p-3.5 bg-gray-950/60 rounded-xl border border-gray-800">
             <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-300 uppercase tracking-wider">
@@ -173,7 +291,7 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
             </label>
 
             <p className="text-[11px] text-gray-400 leading-relaxed">
-              Прямые вызовы к публичному <code>api.hh.ru</code> полностью исключены. Все данные собираются сервером через Headless Playwright (обход блокировок и 403 Forbidden) и сохраняются в базу PostgreSQL (Neon).
+              Прямые вызовы к публичному <code>api.hh.ru</code> полностью исключены. Все данные собираются сервером через Headless Playwright и сохраняются в PostgreSQL (Neon).
             </p>
 
             <div className="flex gap-2">
@@ -220,7 +338,135 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
             )}
           </div>
 
-          {/* Section 2: IndexedDB Local Cache & Offline Resilience */}
+          {/* Section 2: API Secret Key Protection (x-api-key) */}
+          <div className="space-y-3 p-3.5 bg-gray-950/60 rounded-xl border border-gray-800">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                <Key className="w-3.5 h-3.5 text-rose-400" />
+                <span>Ключ авторизации API (API_SECRET_KEY / x-api-key)</span>
+              </label>
+              <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                Security Enforced
+              </span>
+            </div>
+
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              Все защищенные эндпоинты бэкенда (<code className="text-rose-300">/api/vacancies</code>, <code className="text-rose-300">/api/scan</code>, <code className="text-rose-300">/api/scoring-rules</code>, <code className="text-rose-300">/api/push/*</code>) проверяют заголовок <code className="text-gray-300 font-mono">x-api-key</code> или <code className="text-gray-300 font-mono">Bearer</code>.
+            </p>
+
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                placeholder="scan_live_... (секретный ключ доступа)"
+                className="flex-1 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-100 placeholder-gray-600 focus:outline-none focus:border-rose-500 font-mono"
+              />
+              <button
+                type="button"
+                onClick={handleGenerateApiKey}
+                className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-medium rounded-xl border border-rose-500/30 transition flex items-center gap-1.5 shrink-0"
+                title="Сгенерировать криптостойкий ключ"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Сгенерировать</span>
+              </button>
+            </div>
+
+            {copiedField === 'apiKey' && (
+              <p className="text-[11px] text-emerald-400 flex items-center gap-1">
+                <Check className="w-3.5 h-3.5" />
+                <span>Новый API-ключ сгенерирован и скопирован в буфер! Не забудьте сохранить и прописать в Render.</span>
+              </p>
+            )}
+          </div>
+
+          {/* Section 3: Generator of VAPID & Cron Secrets */}
+          <div className="space-y-3 p-3.5 bg-gray-950/60 rounded-xl border border-gray-800">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Генератор секретов (VAPID Push & CRON)</span>
+              </label>
+              <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                1-Click Setup
+              </span>
+            </div>
+
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              Генерация криптографических пар ключей ECDSA P-256 для Web Push уведомлений и токенов cron-job.org без сторонних утилит.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {/* VAPID button */}
+              <button
+                type="button"
+                onClick={handleGenerateVapid}
+                disabled={isGeneratingVapid}
+                className="p-2.5 bg-gray-900 hover:bg-gray-800 text-left rounded-xl border border-gray-800 transition flex flex-col gap-1 group"
+              >
+                <div className="flex items-center justify-between text-xs font-semibold text-gray-200 group-hover:text-cyan-400">
+                  <span className="flex items-center gap-1.5">
+                    <Radio className="w-3.5 h-3.5 text-cyan-400" />
+                    VAPID-пара (P-256)
+                  </span>
+                  {copiedField === 'vapid' ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-gray-400" />
+                  )}
+                </div>
+                <div className="text-[10px] text-gray-400">
+                  {generatedVapid ? 'Ключи скопированы в буфер' : 'Сгенерировать Public & Private'}
+                </div>
+              </button>
+
+              {/* CRON_SECRET button */}
+              <button
+                type="button"
+                onClick={handleGenerateCronSecret}
+                className="p-2.5 bg-gray-900 hover:bg-gray-800 text-left rounded-xl border border-gray-800 transition flex flex-col gap-1 group"
+              >
+                <div className="flex items-center justify-between text-xs font-semibold text-gray-200 group-hover:text-amber-400">
+                  <span className="flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-amber-400" />
+                    CRON_SECRET
+                  </span>
+                  {copiedField === 'cron' ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-gray-400" />
+                  )}
+                </div>
+                <div className="text-[10px] text-gray-400">
+                  {generatedCron ? 'Секрет скопирован в буфер' : 'Для cron-job.org /api/scan/cron'}
+                </div>
+              </button>
+            </div>
+
+            {/* Quick Export .env block */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={handleCopyEnvBlock}
+                className="w-full py-2 px-3 bg-gray-900 hover:bg-gray-800 text-gray-200 text-xs font-medium rounded-xl border border-gray-700/80 transition flex items-center justify-center gap-2"
+              >
+                {copiedField === 'allEnv' ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-emerald-400">Конфигурация .env скопирована в буфер обмена!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Скопировать готовый блок переменных для Render (.env)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Section 4: IndexedDB Local Cache & Offline Resilience */}
           <div className="space-y-3 p-3.5 bg-gray-950/60 rounded-xl border border-gray-800">
             <div className="flex items-center justify-between">
               <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-300 uppercase tracking-wider">
@@ -231,10 +477,6 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
                 Offline-First
               </span>
             </div>
-
-            <p className="text-[11px] text-gray-400 leading-relaxed">
-              Все полученные с бэкенда вакансии кэшируются локально в <strong>IndexedDB</strong>. При потере соединения или когда сервер Render уходит в спящий режим, приложение загружается мгновенно из локального хранилища.
-            </p>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="p-2.5 rounded-lg bg-gray-900 border border-gray-800 flex items-center gap-2">
@@ -286,7 +528,7 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
             )}
           </div>
 
-          {/* Section 3: Render Deploy Hook */}
+          {/* Section 5: Render Deploy Hook */}
           <div className="space-y-3 p-3.5 bg-gray-950/60 rounded-xl border border-gray-800">
             <div className="flex items-center justify-between">
               <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-300 uppercase tracking-wider">
@@ -297,10 +539,6 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
                 CI/CD Auto-Deploy
               </span>
             </div>
-
-            <p className="text-[11px] text-gray-400 leading-relaxed">
-              Настроен вебхук мгновенного обновления бэкенда на <strong>Render.com</strong>. При каждом пуше в ветку <code className="text-amber-300">main</code> GitHub Actions автоматически вызывает этот хук после сборки Docker-образа. Также деплой можно запустить вручную прямо сейчас:
-            </p>
 
             <div className="flex gap-2">
               <input

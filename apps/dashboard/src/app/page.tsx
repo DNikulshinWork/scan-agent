@@ -11,6 +11,8 @@ import { ArchitecturePlanView } from '../components/ArchitecturePlanView';
 import { ApiSettingsModal } from '../components/ApiSettingsModal';
 import { PWAInstallPrompt } from '../components/PWAInstallPrompt';
 import { MobileBottomNav } from '../components/MobileBottomNav';
+import { AuthLockScreen } from '../components/AuthLockScreen';
+import { AuthUser, getStoredAuthUser } from '../services/authService';
 import { initialVacancies, initialProfile, defaultScoringRules } from '../data/mockData';
 import {
   loadVacanciesWithCache,
@@ -47,6 +49,9 @@ export default function DashboardPage() {
   const [dataSource, setDataSource] = useState<'backend' | 'cache' | 'fallback'>('cache');
   const [cacheCount, setCacheCount] = useState<number>(0);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+
+  // Authentication gate for Dmitry Nikulshin (Google / GitHub / API Key)
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredAuthUser());
 
   const [backendMeta, setBackendMeta] = useState<{
     database?: string;
@@ -258,6 +263,11 @@ export default function DashboardPage() {
     }
   };
 
+  // Lock screen gate for unauthorized sessions
+  if (!authUser) {
+    return <AuthLockScreen onAuthenticated={(user) => setAuthUser(user)} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col selection:bg-rose-600 selection:text-white">
       <Navbar
@@ -269,6 +279,7 @@ export default function DashboardPage() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         backendOnline={backendOnline}
         apiUrl={apiUrl}
+        authUser={authUser}
       />
 
       {/* Global Toast / Notification */}

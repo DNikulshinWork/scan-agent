@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Briefcase, BarChart3, User, Server, RefreshCw, Settings } from 'lucide-react';
+import { Briefcase, BarChart3, User, Server, RefreshCw, Settings, ShieldCheck } from 'lucide-react';
 import { PushNotificationToggle } from './PushNotificationToggle';
+import { AuthUser } from '../services/authService';
 
 const getAssetUrl = (path: string): string => {
   const cleanPath = path.startsWith('/') ? path.slice(1) : path;
@@ -64,6 +65,7 @@ interface NavbarProps {
   onOpenSettings?: () => void;
   backendOnline?: boolean;
   apiUrl?: string;
+  authUser?: AuthUser | null;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -75,6 +77,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSettings,
   backendOnline,
   apiUrl,
+  authUser,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-gray-950/90 backdrop-blur-md border-b border-gray-800">
@@ -180,11 +183,27 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <PushNotificationToggle apiUrl={apiUrl} />
 
+            {authUser && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="flex items-center gap-1.5 px-2 py-1 bg-gray-900/90 hover:bg-gray-800 text-gray-300 text-xs rounded-xl border border-gray-800 transition shrink-0"
+                title={`Авторизован: ${authUser.name} (${authUser.email || authUser.username || ''})`}
+              >
+                <div className="w-5 h-5 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center font-bold text-[10px] border border-rose-500/30 shrink-0">
+                  {authUser.name ? authUser.name.charAt(0) : 'D'}
+                </div>
+                <span className="hidden lg:inline text-[11px] font-medium text-gray-300 max-w-[100px] truncate">
+                  {authUser.username || (authUser.name ? authUser.name.split(' ')[0] : 'Admin')}
+                </span>
+              </button>
+            )}
+
             {onOpenSettings && (
               <button
                 onClick={onOpenSettings}
                 className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-xl border border-gray-800 transition shrink-0"
-                title="Параметры источника данных и кэша IndexedDB"
+                title="Параметры безопасности, API-ключей и источника данных"
                 aria-label="Настройки"
               >
                 <Settings className="w-4 h-4" />

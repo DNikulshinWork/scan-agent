@@ -11,6 +11,33 @@ import {
 
 export const DEFAULT_BACKEND_URL = 'https://scan-agent-api.onrender.com';
 
+export function getStoredApiKey(): string {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem('api_secret_key') || '';
+}
+
+export function setStoredApiKey(key: string): void {
+  if (typeof window === 'undefined') return;
+  if (!key) {
+    localStorage.removeItem('api_secret_key');
+  } else {
+    localStorage.setItem('api_secret_key', key.trim());
+  }
+}
+
+export function getAuthHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    ...extraHeaders,
+  };
+  const key = getStoredApiKey();
+  if (key) {
+    headers['x-api-key'] = key;
+    headers['Authorization'] = `Bearer ${key}`;
+  }
+  return headers;
+}
+
 export interface FetchResult {
   vacancies: Vacancy[];
   source: 'backend' | 'cache' | 'fallback';
@@ -92,7 +119,7 @@ export async function loadVacanciesWithCache(
 
     const res = await fetch(`${clean}/api/vacancies?limit=150`, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: getAuthHeaders(),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -146,7 +173,7 @@ export async function loadVacanciesWithCache(
           try {
             const pRes = await fetch(`${clean}/api/vacancies/${pending.id}`, {
               method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
+              headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
               body: JSON.stringify({ status: pending.status, outcome: pending.outcome }),
             });
             return pRes.ok;
@@ -203,7 +230,7 @@ export async function triggerBackendScanJob(
 
   const res = await fetch(`${clean}/api/scan`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ sync: options.sync ?? true, maxPages: options.maxPages ?? 2 }),
   });
 
@@ -251,7 +278,7 @@ export async function syncVacancyUpdate(
 
     const res = await fetch(`${clean}/api/vacancies/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ status: updates.status, outcome: updates.outcome }),
       signal: controller.signal,
     });
@@ -288,7 +315,7 @@ export async function fetchScoringRules(
     const timeoutId = setTimeout(() => controller.abort(), 4000);
     const res = await fetch(`${clean}/api/scoring-rules`, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: getAuthHeaders(),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -329,7 +356,7 @@ export async function saveScoringRules(
   try {
     const res = await fetch(`${clean}/api/scoring-rules`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(rules),
     });
     if (res.ok) {
