@@ -1,4 +1,4 @@
-import { Vacancy, KeywordScoringRule, VacancyStatus, VacancyOutcome } from '../types';
+import { Vacancy, KeywordScoringRule, VacancyStatus, VacancyOutcome, SecretsAuditReport } from '../types';
 import { initialVacancies, defaultScoringRules } from '../data/mockData';
 import {
   getCachedVacancies,
@@ -480,3 +480,33 @@ export async function triggerServerTestPush(
   }
   return res.json();
 }
+
+/**
+ * Запрос полного аудита всех секретов, ключей и состояния Render бэкенда
+ */
+export async function fetchSecretsAudit(apiUrl: string = DEFAULT_BACKEND_URL): Promise<SecretsAuditReport> {
+  const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+  const targetUrl = buildProtectedUrl('/api/diagnostics/secrets', clean);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 9000);
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'GET',
+      headers: getAuthHeaders({ Accept: 'application/json' }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok && res.status !== 401) {
+      throw new Error(`Сервер вернул ошибку HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    throw new Error(err.message || 'Не удалось связаться с сервером для аудита секретов');
+  }
+}
+

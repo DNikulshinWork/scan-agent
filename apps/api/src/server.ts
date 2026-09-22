@@ -62,6 +62,7 @@ fastify.addHook('preHandler', async (req: FastifyRequest, reply: FastifyReply) =
   if (
     url === '/health' ||
     url === '/api/health' ||
+    url === '/api/diagnostics/secrets' ||
     url === '/api/scan/cron' ||
     url === '/api/push/vapid-public-key'
   ) {
@@ -319,6 +320,214 @@ const handleHealthCheck = async (req: FastifyRequest, reply: FastifyReply) => {
 // Регистрируем ОБА пути: /health (для cron-job.org) и /api/health (для дашборда)
 fastify.get('/health', handleHealthCheck);
 fastify.get('/api/health', handleHealthCheck);
+
+// ==========================================
+// Аудит секретов, ключей и конфигурации Render
+// ==========================================
+function maskSecretValue(val: string | undefined): { isSet: boolean; preview: string; length: number } {
+  if (!val) return { isSet: false, preview: 'не задан', length: 0 };
+  const clean = val.trim().replace(/^["']|["']$/g, '');
+  if (!clean) return { isSet: false, preview: 'не задан', length: 0 };
+  if (clean.length <= 8) {
+    return { isSet: true, preview: '••••••••', length: clean.length };
+  }
+  const preview = `${clean.slice(0, 4)}••••${clean.slice(-4)}`;
+  return { isSet: true, preview, length: clean.length };
+}
+
+fastify.get('/api/diagnostics/secrets', async (req: FastifyRequest) => {
+  const startTime = Date.now();
+  let dbStatus = 'checking';
+  let dbLatencyMs = 0;
+  let totalVacancies = 0;
+  let dbHost = 'unknown';
+
+  try {
+    const dbUrl = process.env.DATABASE_URL || '';
+    if (dbUrl) {
+      try {
+        const parsed = new URL(dbUrl.replace(/^postgresql:\/\//i, 'http://'));
+        dbHost = parsed.hostname;
+      } catch {
+        dbHost = 'neon.tech';
+      }
+    }
+    await prisma.$queryRaw`SELECT 1`;
+    totalVacancies = await prisma.order.count().catch(() => 0);
+    dbLatencyMs = Date.now() - startTime;
+    dbStatus = 'connected';
+  } catch (err: any) {
+    dbStatus = 'error: ' + (err.message || 'connection failed');
+  }
+
+  // Caller auth check
+  const apiKeyHeader = req.headers['x-api-key'];
+  const authHeader = req.headers['authorization'];
+  const bearerToken = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
+  const query = req.query as Record<string, string> | undefined;
+  const queryToken = query?.apiKey || query?.token || query?.key;
+  const rawProvidedKey = (typeof apiKeyHeader === 'string' ? apiKeyHeader.trim() : '') || bearerToken || (typeof queryToken === 'string' ? queryToken.trim() : '');
+  const providedKey = rawProvidedKey.replace(/^["']|["']$/g, '').trim();
+
+  const apiSecretSet = Boolean(API_SECRET_KEY);
+  const clientKeyMatches = apiSecretSet ? (providedKey === API_SECRET_KEY || providedKey === rawSecret.trim()) : true;
+
+  const cronSecret = process.env.CRON_SECRET?.trim().replace(/^["']|["']$/g, '');
+  const vapidPublic = process.env.VAPID_PUBLIC_KEY?.trim().replace(/^["']|["']$/g, '');
+  const vapidPrivate = process.env.VAPID_PRIVATE_KEY?.trim().replace(/^["']|["']$/g, '');
+  const vapidSubject = process.env.VAPID_SUBJECT?.trim().replace(/^["']|["']$/g, '');
+  const hhSearchUrl = process.env.HH_SEARCH_URL?.trim().replace(/^["']|["']$/g, '');
+
+  const secretsAudit = [
+    {
+      key: 'API_SECRET_KEY',
+      category: 'Security & Auth',
+      description: 'Мастер-ключ авторизации доступа к защищенным API эндпоинтам бэкенда',
+      required: true,
+      configured: apiSecretSet,
+      ...maskSecretValue(API_SECRET_KEY),
+      clientMatches: clientKeyMatches,
+      status: !apiSecretSet ? 'warning' : clientKeyMatches ? 'ok' : 'mismatch',
+      message: !apiSecretSet
+        ? 'Не задан на сервере: защита API отключена'
+        : clientKeyMatches
+        ? 'Установлен и подтвержден (совпадает с ключом в вашем браузере)'
+        : 'Установлен на сервере, но не совпадает с ключом в браузере (вызывает 401)',
+    },
+    {
+      key: 'DATABASE_URL',
+      category: 'Database',
+      description: 'Строка подключения к пулу базы данных PostgreSQL (Neon)',
+      required: true,
+      configured: Boolean(process.env.DATABASE_URL),
+      ...maskSecretValue(process.env.DATABASE_URL),
+      status: dbStatus === 'connected' ? 'ok' : 'error',
+      details: {
+        host: dbHost,
+        latencyMs: dbLatencyMs,
+        totalOrders: totalVacancies,
+      },
+      message:
+        dbStatus === 'connected'
+          ? `Neon PostgreSQL подключена успешно (${dbLatencyMs}мс, ${totalVacancies} вакансий в БД)`
+          : `Ошибка соединения: ${dbStatus}`,
+    },
+    {
+      key: 'CRON_SECRET',
+      category: 'Scheduler',
+      description: 'Секретный токен для запуска фонового сбора через cron-job.org (/api/scan/cron)',
+      required: true,
+      configured: Boolean(cronSecret),
+      ...maskSecretValue(cronSecret),
+      status: cronSecret ? 'ok' : 'warning',
+      message: cronSecret
+        ? 'Токен установлен (cron-задачи защищены от несанкционированного вызова)'
+        : 'Не задан: внешний планировщик cron-job.org не сможет запустить парсинг',
+    },
+    {
+      key: 'VAPID_PUBLIC_KEY',
+      category: 'Web Push',
+      description: 'Публичный ключ ECDSA P-256 для регистрации Push-подписок в браузере',
+      required: false,
+      configured: Boolean(vapidPublic),
+      ...maskSecretValue(vapidPublic),
+      status: vapidPublic && vapidPublic.length >= 65 ? 'ok' : vapidPublic ? 'warning' : 'neutral',
+      message: vapidPublic
+        ? `Публичный ключ активен (${vapidPublic.length} симв.)`
+        : 'Не задан (браузерные Web Push уведомления отключены)',
+    },
+    {
+      key: 'VAPID_PRIVATE_KEY',
+      category: 'Web Push',
+      description: 'Приватный ключ подписи Web Push уведомлений (RFC 8291 / RFC 8292)',
+      required: false,
+      configured: Boolean(vapidPrivate),
+      ...maskSecretValue(vapidPrivate),
+      status: vapidPrivate && vapidPrivate.length >= 32 ? 'ok' : vapidPrivate ? 'warning' : 'neutral',
+      message: vapidPrivate
+        ? `Приватный ключ активен (${vapidPrivate.length} симв.)`
+        : 'Не задан (сервер не сможет подписывать push-уведомления)',
+    },
+    {
+      key: 'VAPID_SUBJECT',
+      category: 'Web Push',
+      description: 'Контактный почтовый адрес администратора (mailto:...) для push-сервисов Google/Apple',
+      required: false,
+      configured: Boolean(vapidSubject),
+      preview: vapidSubject || 'не задан',
+      length: vapidSubject ? vapidSubject.length : 0,
+      isSet: Boolean(vapidSubject),
+      status: vapidSubject && vapidSubject.includes('@') ? 'ok' : vapidSubject ? 'warning' : 'neutral',
+      message: vapidSubject ? `Контакт указан: ${vapidSubject}` : 'Не задан',
+    },
+    {
+      key: 'HH_SEARCH_URL',
+      category: 'Scanner & Filter',
+      description: 'Ссылка с кастомными фильтрами поиска вакансий на hh.ru (удаленка, стек, исключения)',
+      required: false,
+      configured: Boolean(hhSearchUrl),
+      preview: hhSearchUrl ? `${hhSearchUrl.slice(0, 24)}...` : 'по умолчанию (Fullstack/TS/React/Node)',
+      length: hhSearchUrl ? hhSearchUrl.length : 0,
+      isSet: Boolean(hhSearchUrl),
+      status: 'ok',
+      message: hhSearchUrl
+        ? `Кастомный поисковый URL активен (${hhSearchUrl.length} симв.)`
+        : 'Используется встроенный оптимизированный поисковый фильтр',
+    },
+    {
+      key: 'NODE_ENV',
+      category: 'Environment',
+      description: 'Режим запуска Node.js среды',
+      required: true,
+      configured: Boolean(process.env.NODE_ENV),
+      preview: process.env.NODE_ENV || 'production',
+      length: (process.env.NODE_ENV || 'production').length,
+      isSet: true,
+      status: 'ok',
+      message: `Текущий режим: ${process.env.NODE_ENV || 'production'}`,
+    },
+    {
+      key: 'PORT',
+      category: 'Environment',
+      description: 'Сетевой порт сервиса (назначается платформой Render)',
+      required: true,
+      configured: Boolean(process.env.PORT),
+      preview: process.env.PORT || '10000',
+      length: (process.env.PORT || '10000').length,
+      isSet: true,
+      status: 'ok',
+      message: `Сервер прослушивает 0.0.0.0:${process.env.PORT || '10000'}`,
+    },
+  ];
+
+  const total = secretsAudit.length;
+  const validCount = secretsAudit.filter((s) => s.status === 'ok').length;
+  const warningCount = secretsAudit.filter((s) => s.status === 'warning' || s.status === 'mismatch').length;
+  const errorCount = secretsAudit.filter((s) => s.status === 'error').length;
+
+  return {
+    ok: errorCount === 0 && (!apiSecretSet || clientKeyMatches),
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+    server: {
+      port: process.env.PORT || '10000',
+      nodeEnv: process.env.NODE_ENV || 'production',
+    },
+    clientSession: {
+      keyProvided: Boolean(providedKey),
+      keyMatchesServer: clientKeyMatches,
+      providedKeyPreview: providedKey ? `${providedKey.slice(0, 4)}••••${providedKey.slice(-4)}` : 'не передан',
+    },
+    stats: {
+      total,
+      valid: validCount,
+      warnings: warningCount,
+      errors: errorCount,
+      allReady: errorCount === 0 && warningCount === 0,
+    },
+    items: secretsAudit,
+  };
+});
 
 // ==========================================
 // Управление сбором вакансий и статусом

@@ -95,3 +95,45 @@ export interface KeywordScoringRule {
   minScore: number;
   minSalaryFilter: number;
 }
+
+export interface SecretsAuditItem {
+  key: string;
+  category: string;
+  description: string;
+  required: boolean;
+  configured: boolean;
+  isSet: boolean;
+  preview: string;
+  length: number;
+  status: 'ok' | 'warning' | 'error' | 'mismatch' | 'neutral';
+  message: string;
+  clientMatches?: boolean;
+  details?: {
+    host?: string;
+    latencyMs?: number;
+    totalOrders?: number;
+  };
+}
+
+export interface SecretsAuditReport {
+  ok: boolean;
+  timestamp: string;
+  uptimeSeconds: number;
+  server: {
+    port: string;
+    nodeEnv: string;
+  };
+  clientSession: {
+    keyProvided: boolean;
+    keyMatchesServer: boolean;
+    providedKeyPreview: string;
+  };
+  stats: {
+    total: number;
+    valid: number;
+    warnings: number;
+    errors: number;
+    allReady: boolean;
+  };
+  items: SecretsAuditItem[];
+}

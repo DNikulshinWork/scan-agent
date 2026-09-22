@@ -9,6 +9,7 @@ import { StatsView } from '../components/StatsView';
 import { ProfileView } from '../components/ProfileView';
 import { ArchitecturePlanView } from '../components/ArchitecturePlanView';
 import { ApiSettingsModal } from '../components/ApiSettingsModal';
+import { SecretsAuditModal } from '../components/SecretsAuditModal';
 import { PWAInstallPrompt } from '../components/PWAInstallPrompt';
 import { MobileBottomNav } from '../components/MobileBottomNav';
 import { AuthLockScreen } from '../components/AuthLockScreen';
@@ -45,6 +46,7 @@ export default function DashboardPage() {
   // Backend API URL configuration
   const [apiUrl, setApiUrl] = useState<string>('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAuditOpen, setIsAuditOpen] = useState(false);
   const [backendOnline, setBackendOnline] = useState<boolean | undefined>(undefined);
   const [dataSource, setDataSource] = useState<'backend' | 'cache' | 'fallback'>('cache');
   const [cacheCount, setCacheCount] = useState<number>(0);
@@ -277,6 +279,7 @@ export default function DashboardPage() {
         isScanning={isScanning}
         vacanciesCount={counts.all}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenAudit={() => setIsAuditOpen(true)}
         backendOnline={backendOnline}
         apiUrl={apiUrl}
         authUser={authUser}
@@ -492,6 +495,15 @@ export default function DashboardPage() {
         apiUrl={apiUrl}
         onSaveApiUrl={handleSaveApiUrl}
         onRefreshFromBackend={refreshData}
+        onOpenAudit={() => setIsAuditOpen(true)}
+      />
+
+      {/* Modal for Full Secrets & Render Environment Audit */}
+      <SecretsAuditModal
+        isOpen={isAuditOpen}
+        onClose={() => setIsAuditOpen(false)}
+        apiUrl={apiUrl}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Mobile Bottom Navigation Bar for PWA */}

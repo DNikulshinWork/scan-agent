@@ -42,10 +42,10 @@ export async function runHhScannerJob(
     minScore: 6,
   };
 
-  // По умолчанию ищем вакансии для удаленной работы по релевантному стеку, отсортированные по дате
+  // По умолчанию ищем вакансии для удаленной работы по релевантному стеку (Fullstack/Frontend, TS/React/Node/Next/Nest), отсортированные по дате
   const defaultSearchUrl =
     process.env.HH_SEARCH_URL ||
-    'https://hh.ru/search/vacancy?text=TypeScript+OR+React+OR+Node.js&schedule=remote&order_by=publication_time';
+    'https://hh.ru/search/vacancy?text=%28NAME%3A%28fullstack%20OR%20%22full%20stack%22%20OR%20full-stack%20OR%20%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D1%87%D0%B8%D0%BA%29%29%20AND%20%28TypeScript%20OR%20React%20OR%20Node.js%20OR%20Next.js%20OR%20NestJS%29%20NOT%20%281%D0%A1%20OR%20%D0%91%D0%B8%D1%82%D1%80%D0%B8%D0%BA%D1%81%20OR%20WordPress%20OR%20%D0%A2%D0%B8%D0%BB%D1%8C%D0%B4%D0%B0%20OR%20%D1%82%D0%B5%D1%81%D1%82%D0%B8%D1%80%D0%BE%D0%B2%D1%89%D0%B8%D0%BA%20OR%20QA%29&employment=project&employment=full&employment=part&schedule=remote&order_by=publication_time&search_period=7';
 
   const baseUrl = options.searchUrl || defaultSearchUrl;
   // Ограничиваем число страниц (по умолчанию 2) для быстрой работы (15-20 сек) и предотвращения лимитов

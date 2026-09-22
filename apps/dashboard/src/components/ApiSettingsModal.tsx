@@ -33,6 +33,7 @@ interface ApiSettingsModalProps {
   apiUrl: string;
   onSaveApiUrl: (url: string) => void;
   onRefreshFromBackend?: () => void;
+  onOpenAudit?: () => void;
 }
 
 export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
@@ -41,6 +42,7 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
   apiUrl,
   onSaveApiUrl,
   onRefreshFromBackend,
+  onOpenAudit,
 }) => {
   const [inputUrl, setInputUrl] = useState(apiUrl);
   const [apiKeyInput, setApiKeyInput] = useState(() => getStoredApiKey());
@@ -274,6 +276,33 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
 
         {/* Scrollable body */}
         <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
+          {/* Banner: Full Secrets Audit */}
+          {onOpenAudit && (
+            <div className="bg-gradient-to-r from-rose-950/50 via-purple-950/40 to-gray-950 border border-rose-800/70 rounded-xl p-3.5 flex items-center justify-between gap-3 shadow-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-semibold text-white">Полный аудит всех 7 секретов Render</h4>
+                  <p className="text-[11px] text-gray-400">
+                    Живая проверка API_SECRET_KEY, DATABASE_URL, CRON_SECRET, VAPID и портов
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenAudit();
+                }}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium rounded-xl transition shadow shrink-0 flex items-center gap-1.5"
+              >
+                <span>Запустить аудит</span>
+              </button>
+            </div>
+          )}
+
           {/* Section: Active Session / RBAC */}
           {authUser && (
             <div className="p-3.5 bg-gray-950/80 rounded-xl border border-gray-800 flex items-center justify-between">

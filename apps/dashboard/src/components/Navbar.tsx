@@ -63,6 +63,7 @@ interface NavbarProps {
   isScanning: boolean;
   vacanciesCount: number;
   onOpenSettings?: () => void;
+  onOpenAudit?: () => void;
   backendOnline?: boolean;
   apiUrl?: string;
   authUser?: AuthUser | null;
@@ -75,6 +76,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   isScanning,
   vacanciesCount,
   onOpenSettings,
+  onOpenAudit,
   backendOnline,
   apiUrl,
   authUser,
@@ -182,6 +184,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Actions */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <PushNotificationToggle apiUrl={apiUrl} />
+
+            {onOpenAudit && (
+              <button
+                type="button"
+                onClick={onOpenAudit}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-900 hover:bg-gray-800 text-rose-300 hover:text-rose-200 text-xs rounded-xl border border-gray-800 hover:border-rose-700/60 transition shrink-0"
+                title="Аудит всех 7 секретов и ключей Render"
+                aria-label="Аудит секретов"
+              >
+                <ShieldCheck className="w-4 h-4 text-rose-400" />
+                <span className="hidden xl:inline text-[11px] font-medium">Аудит секретов</span>
+              </button>
+            )}
 
             {authUser && (
               <button
