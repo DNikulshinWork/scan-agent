@@ -30,6 +30,12 @@ export interface Vacancy {
   appliedAt?: string | null;
   experienceRequirement?: string;
   schedule?: string;
+  employment?: string;
+  keySkills?: string[];
+  responsibilities?: string[];
+  requirements?: string[];
+  conditions?: string[];
+  salaryGross?: boolean;
 }
 
 export interface FilterState {

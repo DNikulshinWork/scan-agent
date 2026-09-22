@@ -23,15 +23,16 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
   const [backendMeta, setBackendMeta] = useState<any>(null);
 
   // Render Deploy Hook State
-  const [deployHookUrl, setDeployHookUrl] = useState(
-    'https://api.render.com/deploy/srv-danv04oae00c73a5vv10?key=lKtY2NRDKUc'
-  );
+  const [deployHookUrl, setDeployHookUrl] = useState(() => {
+    return localStorage.getItem('render_deploy_hook_url') || '';
+  });
   const [deployStatus, setDeployStatus] = useState<'idle' | 'deploying' | 'success' | 'error'>('idle');
   const [deployFeedback, setDeployFeedback] = useState<string | null>(null);
 
   const handleTriggerDeploy = async () => {
     const target = deployHookUrl.trim();
     if (!target) return;
+    localStorage.setItem('render_deploy_hook_url', target);
     setDeployStatus('deploying');
     setDeployFeedback('Отправка запроса на Render Deploy Hook...');
     try {

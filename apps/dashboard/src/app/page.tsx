@@ -370,6 +370,7 @@ export default function DashboardPage() {
                           onSelect={setSelectedVacancy}
                           onStatusChange={handleStatusChange}
                           onOutcomeChange={handleOutcomeChange}
+                          profile={profile}
                         />
                       ))}
                     </div>
@@ -402,6 +403,7 @@ export default function DashboardPage() {
                           onSelect={setSelectedVacancy}
                           onStatusChange={handleStatusChange}
                           onOutcomeChange={handleOutcomeChange}
+                          profile={profile}
                         />
                       ))}
                     </div>
@@ -434,6 +436,7 @@ export default function DashboardPage() {
                           onSelect={setSelectedVacancy}
                           onStatusChange={handleStatusChange}
                           onOutcomeChange={handleOutcomeChange}
+                          profile={profile}
                         />
                       ))}
                     </div>
@@ -467,6 +470,7 @@ export default function DashboardPage() {
           onStatusChange={handleStatusChange}
           onOutcomeChange={handleOutcomeChange}
           onUpdatePitch={handleUpdatePitch}
+          profile={profile}
         />
       )}
 

@@ -66,8 +66,10 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trigger Render Deploy Hook
-        if: success()
+        if: success() && env.RENDER_DEPLOY_HOOK_URL != ''
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
-          echo "🚀 Triggering Render deploy hook for srv-danv04oae00c73a5vv10..."
-          curl -f -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL || 'https://api.render.com/deploy/srv-danv04oae00c73a5vv10?key=lKtY2NRDKUc' }}"
+          echo "🚀 Triggering Render deploy hook..."
+          curl -f -s -X POST "$RENDER_DEPLOY_HOOK_URL"
           echo "✅ Render deployment triggered successfully."

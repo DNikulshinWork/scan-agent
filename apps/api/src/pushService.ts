@@ -4,24 +4,36 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Стандартная валидная пара VAPID-ключей (prime256v1 / RFC 8291), если не задана через переменные окружения
-const DEFAULT_VAPID_PUBLIC_KEY =
-  process.env.VAPID_PUBLIC_KEY ||
-  'BF8IOq6aG4xHM4E-LXLg3UEPF43TsXCO0quFGNjKk6c-aHmLLx4CsfP8-pvnxNwBBnnOdDoW1A2AhuwpKxMlVtg';
-
-const DEFAULT_VAPID_PRIVATE_KEY =
-  process.env.VAPID_PRIVATE_KEY || 'PisSxgZ7StRxYFFjhVFww6o8e324IUngqpVQigf28uw';
-
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:d.nikulshin.dev@gmail.com';
 
-try {
-  webpush.setVapidDetails(VAPID_SUBJECT, DEFAULT_VAPID_PUBLIC_KEY, DEFAULT_VAPID_PRIVATE_KEY);
-} catch (err) {
-  console.warn('[WebPush] Не удалось настроить VAPID details:', err);
+let isVapidConfigured = false;
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  try {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+    isVapidConfigured = true;
+    console.info('[WebPush] VAPID details configured successfully');
+  } catch (err) {
+    console.error('[WebPush] Failed to set VAPID details:', err);
+    isVapidConfigured = false;
+  }
+} else {
+  console.error(
+    '[WebPush] VAPID keys not configured: process.env.VAPID_PUBLIC_KEY or process.env.VAPID_PRIVATE_KEY is missing. Web push notifications disabled.'
+  );
+}
+
+export function isPushConfigured(): boolean {
+  return isVapidConfigured;
 }
 
 export function getVapidPublicKey(): string {
-  return DEFAULT_VAPID_PUBLIC_KEY;
+  if (!isVapidConfigured || !VAPID_PUBLIC_KEY) {
+    throw new Error('VAPID keys not configured');
+  }
+  return VAPID_PUBLIC_KEY;
 }
 
 export interface PushPayload {
@@ -74,6 +86,10 @@ export async function removePushSubscription(endpoint: string) {
  * Отправить Web Push уведомление всем активным подписчикам
  */
 export async function broadcastPushNotification(payload: PushPayload) {
+  if (!isVapidConfigured) {
+    throw new Error('VAPID keys not configured');
+  }
+
   const subscriptions = await prisma.pushSubscription.findMany();
   if (subscriptions.length === 0) {
     return { sent: 0, failed: 0, total: 0 };
@@ -112,6 +128,10 @@ export async function broadcastPushNotification(payload: PushPayload) {
  * Отправить тестовое Web Push уведомление
  */
 export async function sendTestPushNotification(endpoint?: string) {
+  if (!isVapidConfigured) {
+    throw new Error('VAPID keys not configured');
+  }
+
   const payload: PushPayload = {
     title: '🔔 ScanAgent: Настоящий Web Push!',
     body: 'Уведомление доставлено через серверный Web Push API даже при закрытой вкладке браузера.',

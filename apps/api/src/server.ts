@@ -20,7 +20,7 @@ const fastify = Fastify({
 });
 
 const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',')
+  ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
   : [
       'http://localhost:3000',
       'http://localhost:5173',
@@ -29,7 +29,7 @@ const allowedOrigins = process.env.CORS_ORIGIN
     ];
 
 await fastify.register(cors, {
-  origin: (origin, cb) => {
+  origin: (origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) => {
     // Разрешаем запросы без Origin (например, от curl, cron-job.org или SSR)
     if (!origin) return cb(null, true);
     if (
@@ -40,9 +40,9 @@ await fastify.register(cors, {
     ) {
       return cb(null, true);
     }
-    return cb(null, true); // Допускаем для надежности кросс-доменного PWA
+    return cb(null, false);
   },
-  methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 });
 
 const defaultRules: KeywordScoringRule = {
@@ -438,7 +438,7 @@ fastify.get('/api/scoring-rules', async () => {
   return activeRules;
 });
 
-fastify.put('/api/scoring-rules', async (req: FastifyRequest, reply: FastifyReply) => {
+const handleScoringRulesUpdate = async (req: FastifyRequest, reply: FastifyReply) => {
   const body = (req.body as Partial<KeywordScoringRule>) || {};
 
   const updatedRules: KeywordScoringRule = {
@@ -471,60 +471,31 @@ fastify.put('/api/scoring-rules', async (req: FastifyRequest, reply: FastifyRepl
     });
 
     activeRules = updatedRules;
-    fastify.log.info('[ScoringRules] Правила скоринга обновлены пользователем и сохранены в PostgreSQL');
+    fastify.log.info('[ScoringRules] Правила скоринга обновлены и сохранены в PostgreSQL');
     return reply.send({ ok: true, rules: activeRules, message: 'Правила скоринга сохранены в базе Neon' });
   } catch (err: any) {
     fastify.log.error(err, 'Ошибка сохранения правил скоринга в БД');
     return reply.status(500).send({ ok: false, error: err.message || 'Failed to save scoring rules' });
   }
-});
+};
 
-fastify.post('/api/scoring-rules', async (req: FastifyRequest, reply: FastifyReply) => {
-  const body = (req.body as Partial<KeywordScoringRule>) || {};
-  const updatedRules: KeywordScoringRule = {
-    coreStack: Array.isArray(body.coreStack) ? body.coreStack : activeRules.coreStack,
-    relatedStack: Array.isArray(body.relatedStack) ? body.relatedStack : activeRules.relatedStack,
-    niceToHave: Array.isArray(body.niceToHave) ? body.niceToHave : activeRules.niceToHave,
-    hardExclude: Array.isArray(body.hardExclude) ? body.hardExclude : activeRules.hardExclude,
-    minScore: typeof body.minScore === 'number' ? body.minScore : activeRules.minScore,
-  };
-
-  try {
-    await prisma.scoringRuleConfig.upsert({
-      where: { id: 'default' },
-      update: {
-        coreStack: updatedRules.coreStack.join(','),
-        relatedStack: updatedRules.relatedStack.join(','),
-        niceToHave: updatedRules.niceToHave.join(','),
-        hardExclude: updatedRules.hardExclude.join(','),
-        minScore: updatedRules.minScore,
-        updatedAt: new Date(),
-      },
-      create: {
-        id: 'default',
-        coreStack: updatedRules.coreStack.join(','),
-        relatedStack: updatedRules.relatedStack.join(','),
-        niceToHave: updatedRules.niceToHave.join(','),
-        hardExclude: updatedRules.hardExclude.join(','),
-        minScore: updatedRules.minScore,
-      },
-    });
-
-    activeRules = updatedRules;
-    return reply.send({ ok: true, rules: activeRules });
-  } catch (err: any) {
-    return reply.status(500).send({ ok: false, error: err.message });
-  }
+fastify.route({
+  method: ['PUT', 'POST'],
+  url: '/api/scoring-rules',
+  handler: handleScoringRulesUpdate,
 });
 
 // ==========================================
 // Настоящий Web Push (VAPID / RFC 8291)
 // ==========================================
 // Получение публичного VAPID ключа клиентом
-fastify.get('/api/push/vapid-public-key', async () => {
-  return {
-    publicKey: getVapidPublicKey(),
-  };
+fastify.get('/api/push/vapid-public-key', async (req: FastifyRequest, reply: FastifyReply) => {
+  try {
+    const publicKey = getVapidPublicKey();
+    return { publicKey };
+  } catch (err: any) {
+    return reply.status(503).send({ ok: false, error: 'VAPID keys not configured' });
+  }
 });
 
 // Сохранение Push-подписки браузера

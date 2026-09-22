@@ -1,8 +1,14 @@
 #!/bin/bash
 set -e
 
-# Render Deploy Hook for service srv-danv04oae00c73a5vv10
-RENDER_HOOK="${RENDER_DEPLOY_HOOK_URL:-https://api.render.com/deploy/srv-danv04oae00c73a5vv10?key=lKtY2NRDKUc}"
+# Render Deploy Hook for service
+RENDER_HOOK="${RENDER_DEPLOY_HOOK_URL:-}"
+
+if [ -z "$RENDER_HOOK" ]; then
+  echo "❌ Ошибка: Переменная RENDER_DEPLOY_HOOK_URL не установлена."
+  echo "Использование: RENDER_DEPLOY_HOOK_URL='https://api.render.com/deploy/srv-...' ./scripts/trigger-render-deploy.sh"
+  exit 1
+fi
 
 echo "🚀 Отправка запроса на Deploy Hook Render..."
 echo "👉 Сервис: srv-danv04oae00c73a5vv10"

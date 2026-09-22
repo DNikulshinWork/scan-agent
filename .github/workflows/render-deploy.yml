@@ -16,9 +16,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Deploy Hook
+        env:
+          DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
-          DEPLOY_HOOK="${{ secrets.RENDER_DEPLOY_HOOK_URL || 'https://api.render.com/deploy/srv-danv04oae00c73a5vv10?key=lKtY2NRDKUc' }}"
-          echo "🚀 Calling Render Deploy Hook for srv-danv04oae00c73a5vv10..."
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "❌ Error: secrets.RENDER_DEPLOY_HOOK_URL is not configured."
+            exit 1
+          fi
+          echo "🚀 Calling Render Deploy Hook..."
           RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$DEPLOY_HOOK")
           HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d':' -f2)
           BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')

@@ -29,3 +29,16 @@ docker compose up --build -d
 ```
 - Dashboard: http://localhost:3000
 - API Healthcheck: http://localhost:10000/api/health
+
+## Безопасность и ротация секретов (Security Notice)
+
+> ⚠️ **Важное напоминание по ротации ключей**:
+> Если ключи (`RENDER_DEPLOY_HOOK_URL`, пара VAPID-ключей) ранее присутствовали в истории публичного репозитория, их необходимо перевыпустить вручную:
+> 1. **Render Deploy Hook**: перевыпустите хук в панели управления Render (`Settings -> Deploy Hook -> Regenerate`) и укажите новое значение в GitHub Secrets (`RENDER_DEPLOY_HOOK_URL`).
+> 2. **VAPID-ключи**: сгенерируйте новую чистую пару ключей командой:
+>    ```bash
+>    npx web-push generate-vapid-keys
+>    ```
+>    И обновите переменные `VAPID_PUBLIC_KEY` и `VAPID_PRIVATE_KEY` в переменных окружения на Render и в `.env`.
+> 3. Исходный код и файлы `.env.example` содержат исключительно плейсхолдеры. Любые секретные ключи передаются строго через переменные окружения (`process.env`) или защищенные хранилища секретов CI/CD.
+
