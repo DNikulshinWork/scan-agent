@@ -636,16 +636,27 @@ fastify.post('/api/scan', async (req: FastifyRequest, reply: FastifyReply) => {
 
 // Эндпоинт для запуска через внешний cron-job (GET или POST)
 const handleCronTrigger = async (req: FastifyRequest, reply: FastifyReply) => {
-  const query = req.query as { token?: string; pages?: string };
+  const query = req.query as {
+    token?: string;
+    cronSecret?: string;
+    secret?: string;
+    key?: string;
+    apiKey?: string;
+    pages?: string;
+  };
   const secret = process.env.CRON_SECRET;
 
   // Опциональная проверка секретного токена (CRON_SECRET или API_SECRET_KEY)
   const allowedSecret = secret || API_SECRET_KEY;
   if (allowedSecret) {
     const authHeader = req.headers['authorization'] || req.headers['x-cron-secret'] || req.headers['x-api-key'];
-    const token = query.token || (typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '');
+    const queryToken = query.token || query.cronSecret || query.secret || query.apiKey || query.key;
+    const token = queryToken || (typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '');
     if (token !== secret && token !== API_SECRET_KEY) {
-      return reply.status(401).send({ ok: false, error: 'Unauthorized: Invalid cron secret' });
+      return reply.status(401).send({
+        ok: false,
+        error: 'Unauthorized: Invalid cron secret. Pass ?token=YOUR_CRON_SECRET in URL or x-cron-secret header',
+      });
     }
   }
 
