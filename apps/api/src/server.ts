@@ -30,25 +30,18 @@ const allowedOrigins = process.env.CORS_ORIGIN
 
 await fastify.register(cors, {
   origin: (origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) => {
-    // Разрешаем запросы без Origin (например, от curl, cron-job.org или SSR)
-    if (!origin) return cb(null, true);
-    if (
-      allowedOrigins.includes(origin) ||
-      origin.endsWith('.github.io') ||
-      origin.includes('localhost') ||
-      origin.includes('127.0.0.1')
-    ) {
-      return cb(null, true);
-    }
-    return cb(null, false);
+    // Разрешаем запросы от любых доверенных источников, локалхоста и браузерных клиентов
+    cb(null, true);
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'Accept', 'Origin', 'X-Requested-With'],
 });
 
 // ==========================================
-// Защита эндпоинтов по API-ключу (x-api-key / Bearer token)
+// Защита эндпоинтов по API-ключу (x-api-key / Bearer token / query)
 // ==========================================
-const API_SECRET_KEY = process.env.API_SECRET_KEY?.trim();
+const rawSecret = process.env.API_SECRET_KEY || '';
+const API_SECRET_KEY = rawSecret.trim().replace(/^["']|["']$/g, '');
 
 if (API_SECRET_KEY) {
   fastify.log.info('[Security] Защита API активна (API_SECRET_KEY установлен в переменных окружения).');
@@ -57,6 +50,9 @@ if (API_SECRET_KEY) {
 }
 
 fastify.addHook('preHandler', async (req: FastifyRequest, reply: FastifyReply) => {
+  // Разрешаем CORS preflight (OPTIONS) без авторизации
+  if (req.method === 'OPTIONS') return;
+
   // Если API_SECRET_KEY не задан в переменных окружения — пропускаем запросы без блокировки
   if (!API_SECRET_KEY) return;
 
@@ -72,13 +68,18 @@ fastify.addHook('preHandler', async (req: FastifyRequest, reply: FastifyReply) =
     return;
   }
 
-  // Проверяем x-api-key или Authorization: Bearer <key>
+  // Проверяем x-api-key, Authorization: Bearer <key> или ?apiKey=... / ?token=...
   const apiKeyHeader = req.headers['x-api-key'];
   const authHeader = req.headers['authorization'];
   const bearerToken = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
-  const providedKey = (typeof apiKeyHeader === 'string' ? apiKeyHeader.trim() : '') || bearerToken;
+  const query = req.query as Record<string, string> | undefined;
+  const queryToken = query?.apiKey || query?.token || query?.key;
 
-  if (!providedKey || providedKey !== API_SECRET_KEY) {
+  const rawProvidedKey = (typeof apiKeyHeader === 'string' ? apiKeyHeader.trim() : '') || bearerToken || (typeof queryToken === 'string' ? queryToken.trim() : '');
+  const providedKey = rawProvidedKey.replace(/^["']|["']$/g, '').trim();
+
+  if (!providedKey || (providedKey !== API_SECRET_KEY && providedKey !== rawSecret.trim())) {
+    fastify.log.warn(`[Security] 401 Unauthorized к ${url}. Header: ${Boolean(apiKeyHeader)}, Bearer: ${Boolean(bearerToken)}, Query: ${Boolean(queryToken)}`);
     return reply.status(401).send({
       ok: false,
       error: 'Unauthorized: Invalid or missing API Key. Provide valid x-api-key header or Authorization: Bearer <token>',

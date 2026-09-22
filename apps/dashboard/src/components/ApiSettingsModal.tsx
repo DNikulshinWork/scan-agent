@@ -19,6 +19,8 @@ import {
   LogOut,
   Check,
   Radio,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { getCacheMeta, clearCachedVacancies } from '../services/indexedDbStorage';
 import { getStoredApiKey, setStoredApiKey } from '../services/backendService';
@@ -42,6 +44,7 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
 }) => {
   const [inputUrl, setInputUrl] = useState(apiUrl);
   const [apiKeyInput, setApiKeyInput] = useState(() => getStoredApiKey());
+  const [showApiKey, setShowApiKey] = useState(false);
   const [testingStatus, setTestingStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [backendMeta, setBackendMeta] = useState<any>(null);
@@ -75,6 +78,7 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
   const handleGenerateApiKey = () => {
     const key = generateApiKey();
     setApiKeyInput(key);
+    setStoredApiKey(key);
     copyToClipboard(key, 'apiKey');
   };
 
@@ -170,9 +174,11 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 7000);
+      const cleanKey = apiKeyInput.trim().replace(/^["']|["']$/g, '');
       const headers: Record<string, string> = { Accept: 'application/json' };
-      if (apiKeyInput.trim()) {
-        headers['x-api-key'] = apiKeyInput.trim();
+      if (cleanKey) {
+        headers['x-api-key'] = cleanKey;
+        headers['Authorization'] = `Bearer ${cleanKey}`;
       }
 
       const res = await fetch(`${target}/api/health`, {
@@ -181,19 +187,35 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
       });
       clearTimeout(timeoutId);
 
-      if (res.ok) {
-        const data = await res.json();
-        setTestingStatus('success');
-        setBackendMeta(data);
-        setStatusMessage(
-          `Бэкенд доступен! База: ${data.database || 'connected'} (${data.dbLatencyMs || 0}мс), всего в БД: ${
-            data.totalOrders || 0
-          } вакансий.`
-        );
-      } else {
+      if (!res.ok) {
         setTestingStatus('error');
         setStatusMessage(`Сервер вернул статус HTTP ${res.status}`);
+        return;
       }
+
+      const data = await res.json();
+      setBackendMeta(data);
+
+      // Проверяем доступ к защищенному эндпоинту с переданным ключом
+      const queryParam = cleanKey ? `?apiKey=${encodeURIComponent(cleanKey)}` : '';
+      const protectedRes = await fetch(`${target}/api/scoring-rules${queryParam}`, {
+        headers,
+      });
+
+      if (protectedRes.status === 401) {
+        setTestingStatus('error');
+        setStatusMessage(
+          'Бэкенд активен, но API-ключ отклонен (401 Unauthorized). Убедитесь, что в поле ниже введен точно такой же ключ, как в переменной API_SECRET_KEY на панели Render.'
+        );
+        return;
+      }
+
+      setTestingStatus('success');
+      setStatusMessage(
+        `Отлично! Бэкенд онлайн и API-ключ подтвержден (200 OK). База Neon: ${data.database || 'connected'} (${data.dbLatencyMs || 0}мс), вакансий: ${
+          data.totalOrders || 0
+        }.`
+      );
     } catch (err: any) {
       setTestingStatus('error');
       setStatusMessage(
@@ -355,28 +377,62 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({
             </p>
 
             <div className="flex gap-2">
-              <input
-                type="password"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                placeholder="scan_live_... (секретный ключ доступа)"
-                className="flex-1 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-100 placeholder-gray-600 focus:outline-none focus:border-rose-500 font-mono"
-              />
+              <div className="relative flex-1">
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  value={apiKeyInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setApiKeyInput(val);
+                    setStoredApiKey(val.trim());
+                  }}
+                  placeholder="scan_live_... (вставьте тот же ключ, что и на Render)"
+                  className="w-full bg-gray-900 border border-gray-800 rounded-xl pl-3 pr-9 py-2 text-xs text-gray-100 placeholder-gray-600 focus:outline-none focus:border-rose-500 font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition"
+                  title={showApiKey ? 'Скрыть ключ' : 'Показать ключ'}
+                >
+                  {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={handleGenerateApiKey}
                 className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-medium rounded-xl border border-rose-500/30 transition flex items-center gap-1.5 shrink-0"
-                title="Сгенерировать криптостойкий ключ"
+                title="Сгенерировать новый ключ и скопировать"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Сгенерировать</span>
               </button>
             </div>
 
+            <div className="flex items-center justify-between text-[11px] text-gray-400">
+              <span>
+                Статус в браузере:{' '}
+                {apiKeyInput.trim() ? (
+                  <strong className="text-emerald-400">Сохранен ({apiKeyInput.trim().slice(0, 8)}...)</strong>
+                ) : (
+                  <strong className="text-amber-400">Не задан (будет 401 ошибка)</strong>
+                )}
+              </span>
+              {apiKeyInput.trim() && (
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(apiKeyInput.trim(), 'apiKeyExisting')}
+                  className="text-gray-400 hover:text-gray-200 underline"
+                >
+                  {copiedField === 'apiKeyExisting' ? 'Скопировано!' : 'Скопировать'}
+                </button>
+              )}
+            </div>
+
             {copiedField === 'apiKey' && (
               <p className="text-[11px] text-emerald-400 flex items-center gap-1">
                 <Check className="w-3.5 h-3.5" />
-                <span>Новый API-ключ сгенерирован и скопирован в буфер! Не забудьте сохранить и прописать в Render.</span>
+                <span>Новый API-ключ сгенерирован и сохранен в браузере! Укажите его в Render как API_SECRET_KEY.</span>
               </p>
             )}
           </div>

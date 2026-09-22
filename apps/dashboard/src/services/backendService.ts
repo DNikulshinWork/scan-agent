@@ -13,16 +13,36 @@ export const DEFAULT_BACKEND_URL = 'https://scan-agent-api.onrender.com';
 
 export function getStoredApiKey(): string {
   if (typeof window === 'undefined') return '';
-  return localStorage.getItem('api_secret_key') || '';
+  const key = (
+    localStorage.getItem('api_secret_key') ||
+    localStorage.getItem('scan_agent_api_key') ||
+    localStorage.getItem('API_SECRET_KEY') ||
+    (typeof process !== 'undefined' && (process.env as any)?.NEXT_PUBLIC_API_SECRET_KEY) ||
+    ''
+  ).trim();
+  return key.replace(/^["']|["']$/g, '');
 }
 
 export function setStoredApiKey(key: string): void {
   if (typeof window === 'undefined') return;
-  if (!key) {
+  const clean = key ? key.trim().replace(/^["']|["']$/g, '') : '';
+  if (!clean) {
     localStorage.removeItem('api_secret_key');
+    localStorage.removeItem('scan_agent_api_key');
+    localStorage.removeItem('API_SECRET_KEY');
   } else {
-    localStorage.setItem('api_secret_key', key.trim());
+    localStorage.setItem('api_secret_key', clean);
+    localStorage.setItem('scan_agent_api_key', clean);
   }
+}
+
+export function buildProtectedUrl(endpoint: string, base: string = DEFAULT_BACKEND_URL): string {
+  const clean = (base || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
+  const url = `${clean}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  const key = getStoredApiKey();
+  if (!key) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}apiKey=${encodeURIComponent(key)}`;
 }
 
 export function getAuthHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
@@ -117,12 +137,27 @@ export async function loadVacanciesWithCache(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-    const res = await fetch(`${clean}/api/vacancies?limit=150`, {
+    const targetUrl = buildProtectedUrl('/api/vacancies?limit=150', clean);
+    const res = await fetch(targetUrl, {
       method: 'GET',
       headers: getAuthHeaders(),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
+
+    if (res.status === 401) {
+      console.warn('API Key rejected (401 Unauthorized)');
+      if (cached.length > 0) {
+        return {
+          vacancies: cached,
+          source: 'cache',
+          isBackendOnline: true,
+          warning: 'Бэкенд отклонил доступ (401): проверьте API_SECRET_KEY в Настройках ⚙️. Отображаются данные из кэша.',
+          totalCached: cached.length,
+          lastSyncAt: meta.lastSyncAt,
+        };
+      }
+    }
 
     if (res.ok) {
       const data = await res.json();
@@ -228,11 +263,16 @@ export async function triggerBackendScanJob(
 ): Promise<{ ok: boolean; scanned: number; durationMs?: number; message?: string }> {
   const clean = (apiUrl || DEFAULT_BACKEND_URL).trim().replace(/\/$/, '');
 
-  const res = await fetch(`${clean}/api/scan`, {
+  const targetUrl = buildProtectedUrl('/api/scan', clean);
+  const res = await fetch(targetUrl, {
     method: 'POST',
     headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ sync: options.sync ?? true, maxPages: options.maxPages ?? 2 }),
   });
+
+  if (res.status === 401) {
+    throw new Error('API-ключ не сохранен в браузере или не совпадает с API_SECRET_KEY на Render (401). Откройте Настройки (⚙️) и укажите точно такой же ключ.');
+  }
 
   if (res.status === 409) {
     return {
@@ -276,7 +316,8 @@ export async function syncVacancyUpdate(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-    const res = await fetch(`${clean}/api/vacancies/${id}`, {
+    const targetUrl = buildProtectedUrl(`/api/vacancies/${id}`, clean);
+    const res = await fetch(targetUrl, {
       method: 'PATCH',
       headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ status: updates.status, outcome: updates.outcome }),
@@ -313,7 +354,8 @@ export async function fetchScoringRules(
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(`${clean}/api/scoring-rules`, {
+    const targetUrl = buildProtectedUrl('/api/scoring-rules', clean);
+    const res = await fetch(targetUrl, {
       method: 'GET',
       headers: getAuthHeaders(),
       signal: controller.signal,
