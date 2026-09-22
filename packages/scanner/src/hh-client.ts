@@ -39,7 +39,7 @@ export async function runHhScannerJob(
     relatedStack: ['Docker', 'Redis', 'WebSocket', 'Tailwind', 'Python', 'FastAPI'],
     niceToHave: ['Zustand', 'Vitest', 'TanStack'],
     hardExclude: ['1c', '1с', 'bitrix', 'битрикс', 'wordpress', 'tilda', 'тильда', 'тестировщик', 'qa'],
-    minScore: 6,
+    minScore: 3,
   };
 
   // По умолчанию ищем вакансии для удаленной работы по релевантному стеку (Fullstack/Frontend, TS/React/Node/Next/Nest), отсортированные по дате
@@ -83,12 +83,19 @@ export async function runHhScannerJob(
         }
 
         const vacanciesOnPage = await page.$$eval(
-          '[data-qa="vacancy-serp__vacancy"]',
-          (cards): (RawHhVacancy | null)[] => {
-            return cards.map((card) => {
+          '[data-qa="vacancy-serp__vacancy"], [data-qa="serp-item__title"]',
+          (elements): (RawHhVacancy | null)[] => {
+            return elements.map((el) => {
+              // Если элемент сам является ссылкой или заголовком serp-item__title, находим его родительскую карточку
+              const card = (el.matches('[data-qa="vacancy-serp__vacancy"]')
+                ? el
+                : el.closest('[data-qa="vacancy-serp__vacancy"]') || el.closest('div[class*="vacancy-card"]') || el.closest('div[data-qa*="vacancy"]') || el.parentElement?.parentElement) as HTMLElement | null;
+
+              if (!card) return null;
+
               const linkEl = (card.querySelector(
                 '[data-qa="serp-item__title"]'
-              ) || card.querySelector('a[href*="/vacancy/"]')) as HTMLAnchorElement | null;
+              ) || card.querySelector('a[href*="/vacancy/"]') || el.querySelector('a[href*="/vacancy/"]') || (el.tagName === 'A' ? el : null)) as HTMLAnchorElement | null;
 
               const rawHref = linkEl?.href || '';
               const link = rawHref.split('?')[0];
@@ -100,7 +107,8 @@ export async function runHhScannerJob(
 
               const titleEl =
                 card.querySelector('[data-qa="serp-item__title-text"]') ||
-                card.querySelector('[data-qa="serp-item__title"]');
+                card.querySelector('[data-qa="serp-item__title"]') ||
+                linkEl;
               const title = titleEl?.textContent?.trim() || '';
               if (!title) return null;
 
@@ -119,22 +127,22 @@ export async function runHhScannerJob(
 
               // Работодатель
               const employerEl = card.querySelector(
-                '[data-qa="vacancy-serp__vacancy-employer-text"], [data-qa="vacancy-serp__vacancy-employer"]'
+                '[data-qa="vacancy-serp__vacancy-employer-text"], [data-qa="vacancy-serp__vacancy-employer"], [data-qa*="employer"]'
               );
               const employer = employerEl?.textContent?.trim() || 'Компания';
 
               // Город / локация
               const cityEl = card.querySelector(
-                '[data-qa="vacancy-serp__vacancy-address"], [data-qa="vacancy-serp__vacancy_address"]'
+                '[data-qa="vacancy-serp__vacancy-address"], [data-qa="vacancy-serp__vacancy_address"], [data-qa*="address"]'
               );
               const city = cityEl?.textContent?.trim() || 'Удаленно';
 
               // Стек, опыт и требования
               const tagEls = card.querySelectorAll(
-                '[data-qa^="vacancy-label"], [data-qa^="vacancy-serp__vacancy-work-experience"], [data-qa="vacancy-serp__vacancy_snippet_requirement"]'
+                '[data-qa^="vacancy-label"], [data-qa^="vacancy-serp__vacancy-work-experience"], [data-qa="vacancy-serp__vacancy_snippet_requirement"], [data-qa*="snippet"]'
               );
               const tags = Array.from(tagEls)
-                .map((el) => el.textContent?.trim())
+                .map((e) => e.textContent?.trim())
                 .filter(Boolean)
                 .join(' ');
 
@@ -226,7 +234,8 @@ export async function runHhScannerJob(
         vacancy,
         reason: evaluation.stopWordFound,
       });
-    } else if (evaluation.score >= rules.minScore) {
+    } else if (evaluation.score >= (rules.minScore ?? 3) || uniqueVacancies.length <= 15) {
+      // Если вакансия прошла стоп-фильтры и набрала минимальный скор (или выдача компактная) — сохраняем
       passedVacancies.push(vacancy);
       appEventBus.emit(EventType.VACANCY_FILTER_PASSED, {
         vacancy,

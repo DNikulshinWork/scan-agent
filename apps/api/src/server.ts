@@ -1,7 +1,7 @@
 import Fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import dotenv from 'dotenv';
-import { prisma } from '@scan-agent/database';
+import { prisma, ensureDatabaseSchema } from '@scan-agent/database';
 import { appEventBus, EventType } from '@scan-agent/events';
 import { runHhScannerJob, ScannerOptions } from '@scan-agent/scanner';
 import { KeywordScoringRule, Vacancy } from '@scan-agent/shared-types';
@@ -93,7 +93,7 @@ const defaultRules: KeywordScoringRule = {
   relatedStack: ['Docker', 'Redis', 'WebSocket', 'Tailwind', 'Python', 'FastAPI'],
   niceToHave: ['Zustand', 'Vitest', 'TanStack'],
   hardExclude: ['1c', '1с', 'bitrix', 'битрикс', 'wordpress', 'tilda', 'тильда', 'тестировщик', 'qa'],
-  minScore: 6,
+  minScore: 3,
 };
 
 let activeRules: KeywordScoringRule = { ...defaultRules };
@@ -215,20 +215,64 @@ async function executeScanJob(
   fastify.log.info(`[Scanner] 🚀 Старт сбора вакансий HH (источник: ${source})...`);
 
   try {
+    // Гарантируем наличие таблиц в PostgreSQL перед сохранением
+    await ensureDatabaseSchema().catch(() => {});
+
     const vacancies = await runHhScannerJob({
       rules: activeRules,
       maxPages: options?.maxPages ?? Number(process.env.HH_MAX_PAGES || 2),
       searchUrl: options?.searchUrl,
     });
 
+    // Напрямую гарантированно сохраняем все найденные вакансии в PostgreSQL
+    let savedInDb = 0;
+    for (const v of vacancies) {
+      try {
+        await prisma.order.upsert({
+          where: { orderId_source: { orderId: v.orderId, source: 'hh' } },
+          update: {
+            score: v.score,
+            matchPercent: v.matchPercentage,
+            verdict: v.filterVerdict,
+            hook: v.hook,
+            pitch: v.pitch,
+            tags: v.tags.join(','),
+          },
+          create: {
+            orderId: v.orderId,
+            source: 'hh',
+            title: v.title,
+            description: v.description,
+            price: v.price,
+            salaryNum: v.salaryNum,
+            link: v.link,
+            score: v.score,
+            matchPercent: v.matchPercentage,
+            verdict: v.filterVerdict,
+            hook: v.hook,
+            pitch: v.pitch,
+            employer: v.employer,
+            city: v.city,
+            isRemote: v.isRemote,
+            tags: v.tags.join(','),
+            status: 'new',
+            publishedAt: new Date(v.publishedAt),
+          },
+        });
+        savedInDb++;
+      } catch (saveErr) {
+        fastify.log.error(saveErr, `Ошибка прямой записи вакансии hh-${v.orderId} в БД`);
+      }
+    }
+
     const durationMs = Date.now() - startTime;
     lastScanAt = new Date().toISOString();
     lastScanDurationMs = durationMs;
     lastFoundCount = vacancies.length;
-    lastSavedCount = vacancies.length;
+    lastSavedCount = savedInDb;
 
     fastify.log.info(
-      `[Scanner] ✅ Сбор завершен успешно за ${(durationMs / 1000).toFixed(1)}с. Найдено вакансий: ${vacancies.length}`
+      `[Scanner] ✅ Сбор завершен успешно за ${(durationMs / 1000).toFixed(1)}с. Найдено: ${vacancies.length}, сохранено в Neon: ${savedInDb}`
     );
 
     return { ok: true, scanned: vacancies.length, durationMs };
@@ -353,7 +397,14 @@ fastify.get('/api/diagnostics/secrets', async (req: FastifyRequest) => {
       }
     }
     await prisma.$queryRaw`SELECT 1`;
-    totalVacancies = await prisma.order.count().catch(() => 0);
+    try {
+      totalVacancies = await prisma.order.count();
+    } catch (countErr: any) {
+      if (countErr.message?.includes('does not exist') || countErr.code === 'P2021') {
+        await ensureDatabaseSchema().catch(() => {});
+        totalVacancies = await prisma.order.count().catch(() => 0);
+      }
+    }
     dbLatencyMs = Date.now() - startTime;
     dbStatus = 'connected';
   } catch (err: any) {
@@ -639,7 +690,7 @@ fastify.post('/api/scan/toggle', async (req: FastifyRequest) => {
 // ==========================================
 // Получение и редактирование вакансий
 // ==========================================
-fastify.get('/api/vacancies', async (req: any) => {
+fastify.get('/api/vacancies', async (req: any, reply: FastifyReply) => {
   const { status, minScore, limit } = req.query as {
     status?: string;
     minScore?: string;
@@ -652,18 +703,32 @@ fastify.get('/api/vacancies', async (req: any) => {
 
   const take = limit ? Math.min(200, Number(limit)) : 100;
 
-  const orders = await prisma.order.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-    take,
-  });
+  try {
+    const orders = await prisma.order.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
 
-  return orders.map((o: any) => ({
-    ...o,
-    tags: o.tags ? o.tags.split(',') : [],
-    matchPercentage: o.matchPercent,
-    filterVerdict: o.verdict,
-  }));
+    return orders.map((o: any) => ({
+      ...o,
+      tags: o.tags ? o.tags.split(',') : [],
+      matchPercentage: o.matchPercent,
+      filterVerdict: o.verdict,
+    }));
+  } catch (err: any) {
+    // Если таблицы еще не существовали, создаем их на лету и возвращаем пустой массив
+    if (err.message?.includes('does not exist') || err.code === 'P2021') {
+      try {
+        await ensureDatabaseSchema();
+        return [];
+      } catch (schemaErr) {
+        fastify.log.error(schemaErr, 'Failed to auto-create schema on P2021');
+      }
+    }
+    fastify.log.error(err, 'Error in GET /api/vacancies');
+    return reply.status(500).send({ statusCode: 500, error: 'Database query failed', message: err.message });
+  }
 });
 
 fastify.patch('/api/vacancies/:id', async (req: any) => {
@@ -803,6 +868,15 @@ fastify.get('/api/push/subscriptions/count', async () => {
 
 const start = async () => {
   const port = Number(process.env.PORT) || 10000;
+  
+  // Автоматически создаем таблицы в Neon PostgreSQL, если база еще не инициализирована
+  try {
+    await ensureDatabaseSchema();
+    fastify.log.info('[Database] Структура таблиц PostgreSQL (Neon) проверена/инициализирована успешно');
+  } catch (err: any) {
+    fastify.log.error(err, '[Database] Предупреждение: ошибка при автосоздании таблиц Neon PostgreSQL');
+  }
+
   await fastify.listen({ port, host: '0.0.0.0' });
   await loadRulesFromDb();
   initInternalCron();
